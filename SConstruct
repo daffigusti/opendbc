@@ -60,6 +60,8 @@ env = Environment(
   LIBPATH=[
     "#opendbc/can/",
   ],
+  RPATH=[],
+  SHLIBRPATH=[],
   CFLAGS="-std=gnu11",
   CXXFLAGS=["-std=c++1z"],
   CPPPATH=cpppath,
@@ -78,6 +80,10 @@ envCython["CCFLAGS"].remove("-Werror")
 python_libs = []
 if arch == "Darwin":
   envCython["LINKFLAGS"] = ["-bundle", "-undefined", "dynamic_lookup"]
+  envCython["RPATH"] = []
+  envCython["SHLIBRPATH"] = []
+  envCython["RPATHPREFIX"] = '-Wl,-rpath,'
+  envCython["RPATHSUFFIX"] = ''
 elif arch == "aarch64":
   envCython["LINKFLAGS"] = ["-shared"]
 

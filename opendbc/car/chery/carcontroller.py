@@ -174,6 +174,7 @@ class CarController(CarControllerBase):
     ### lateral control ###
     # send steer msg at 50Hz
     apply_steer_req = False
+    print(CS)
     lat_active = CC.latActive and not self.steerDisableTemp
     if (self.frame  % self.params.STEER_STEP) == 0:
       apply_angle = apply_chery_steer_angle_limits(actuators.steeringAngleDeg, self.apply_angle_last, CS.out.vEgoRaw,

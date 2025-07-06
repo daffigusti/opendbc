@@ -14,8 +14,8 @@
 
 #define INFO printf
 #define WARN printf
-#define DEBUG(...)
-//#define DEBUG printf
+// #define DEBUG(...)
+#define DEBUG printf
 
 #define MAX_BAD_COUNTER 5
 #define CAN_INVALID_CNT 5

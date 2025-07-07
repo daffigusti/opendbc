@@ -44,7 +44,7 @@ class TestCherySafetyBase(common.PandaCarSafetyTest, common.AngleSteeringSafetyT
                             #  CHERY_CAM: ( CheryMsg.ACC_DATA)}
   RELAY_MALFUNCTION_ADDRS = {0: [0x307, 0x345], 2 : []}
   FWD_BLACKLISTED_ADDRS = {CHERY_CAM: [CheryMsg.LKAS_CMD, CheryMsg.LKAS_HUD], CHERY_MAIN: []} # No explicit blacklisting in chery.h
-  TX_MSGS = [[CheryMsg.LKAS_CMD, CHERY_MAIN], [CheryMsg.LKAS_HUD, CHERY_MAIN], [CheryMsg.STEER_BUTTON, CHERY_CAM], [CheryMsg.ACC_DATA, CHERY_CAM], [CheryMsg.ACC_CMD, CHERY_MAIN]]
+  TX_MSGS = [[CheryMsg.LKAS_CMD, CHERY_MAIN], [CheryMsg.LKAS_HUD, CHERY_MAIN], [CheryMsg.STEER_BUTTON, CHERY_CAM], [CheryMsg.ACC_DATA, CHERY_MAIN], [CheryMsg.ACC_CMD, CHERY_MAIN]]
 
   # Angle control limits
   STEER_ANGLE_MAX = 360  # deg
@@ -77,7 +77,7 @@ class TestCherySafetyBase(common.PandaCarSafetyTest, common.AngleSteeringSafetyT
     self.safety.set_safety_hooks(CarParams.SafetyModel.cheryCanFd, self.FLAGS)
     self.safety.init_tests()
 
-  def _button_msg(self, main_button = 0, set=0, res = 0, bus=CHERY_MAIN):
+  def _button_msg(self, main_button = 0, set=0, res = 0, bus=CHERY_CAM):
     values = { "ACC": main_button, "RES_PLUS": res, "RES_MINUS": set}
     return self.packer.make_can_msg_panda("STEER_BUTTON", bus, values)
 
@@ -125,8 +125,8 @@ class TestCherySafetyBase(common.PandaCarSafetyTest, common.AngleSteeringSafetyT
     return self.packer.make_can_msg_panda("LKAS_STATE", CHERY_MAIN, values)
 
   def _acc_cmd_msg(self, acc_on):
-    values = {"ACC_ACTIVE": acc_on}
-    return self.packer.make_can_msg_panda("ACC", CHERY_CAM, values)
+    values = {"ACCEL_ON": acc_on}
+    return self.packer.make_can_msg_panda("ACC_CMD", CHERY_MAIN, values)
 
   def _long_control_msg(self, gas, acc_state=3, bus=CHERY_MAIN):
     long_active = 1
@@ -200,9 +200,9 @@ class TestCherySafety(TestCherySafetyBase):
 
   def test_chery_rx_hook_acc_main_on(self):
     # Test ACC main on detection
-    self._rx(self._acc_cmd_msg(True))
+    self._rx(self._pcm_status_msg(True))
     self.assertTrue(self.safety.get_acc_main_on())
-    self._rx(self._acc_cmd_msg(False))
+    self._rx(self._pcm_status_msg(False))
     self.assertFalse(self.safety.get_acc_main_on())
 
   def test_chery_tx_msgs(self):

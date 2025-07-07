@@ -2,9 +2,6 @@
 #pragma once
 
 #include "opendbc/safety/safety_declarations.h"
-#include <stdio.h>
-#include <stdint.h>
-#include <stdlib.h>
 // CAN msgs we care about
 #define CHERY_ACC_CMD 0x3A2
 #define CHERY_ACC_STATUS 0x3A5
@@ -86,20 +83,20 @@ static safety_config chery_init(uint16_t param)
   static const CanMsg CHERY_TX_MSGS[] = {
       {CHERY_LKAS_CMD, 0, 8, .check_relay = true},
       {CHERY_LKAS_HUD, 0, 8, .check_relay = true},
-      {CHERY_ACC_DATA, 2, 8, .check_relay = false},
+      {CHERY_ACC_DATA, 0, 8, .check_relay = false},
       // {CHERY_HUD_ALERT, 0, 8, .check_relay = true},
       // {CHERY_ACC_SETTING, 0, 8, .check_relay = true},
-      {CHERY_STEER_BUTTON, 0, 6, .check_relay = false},
+      // {CHERY_STEER_BUTTON, 0, 6, .check_relay = false},
       {CHERY_STEER_BUTTON, 2, 6, .check_relay = false},
   };
   static const CanMsg CHERY_LONG_TX_MSGS[] = {
       {CHERY_ACC_CMD, 0, 8, .check_relay = true},
       {CHERY_LKAS_CMD, 0, 8, .check_relay = true},
       {CHERY_LKAS_HUD, 0, 8, .check_relay = true},
-      {CHERY_ACC_DATA, 2, 8, .check_relay = false},
+      {CHERY_ACC_DATA, 0, 8, .check_relay = false},
       // {CHERY_HUD_ALERT, 0, 8, .check_relay = true},
       // {CHERY_ACC_SETTING, 0, 8, .check_relay = true},
-      {CHERY_STEER_BUTTON, 0, 6, .check_relay = false},
+      // {CHERY_STEER_BUTTON, 0, 6, .check_relay = false},
       {CHERY_STEER_BUTTON, 2, 6, .check_relay = false},
   };
 

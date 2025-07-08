@@ -81,11 +81,12 @@ class CarControllerParams:
   ACCEL_LOOKUP_BP = [ACCEL_MIN, 0, ACCEL_MAX]
   ACCEL_LOOKUP_V = [GAS_MIN, -24, GAS_MAX]
 
-   # More torque optimization
+  # More torque optimization
   # The torque is calculated based on the curvature of the road and the speed of the car and it's a percentage of the maximum torque.
   SMOOTHING_ANGLE_VEGO_MATRIX = [0, 8.5, 11, 13.8, 22.22]
   SMOOTHING_ANGLE_ALPHA_MATRIX = [0.05, 0.1, 0.3, 0.6, 1]
-
+  SMOOTHING_ANGLE_MAX_VEGO = SMOOTHING_ANGLE_VEGO_MATRIX[-1]
+  
   def __init__(self, CP):
     self.BUTTONS = [
       Button(structs.CarState.ButtonEvent.Type.setCruise, "STEER_BUTTON", "ACC", [1]),

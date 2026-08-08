@@ -1,4 +1,5 @@
 from opendbc.car import get_safety_config, structs
+from opendbc.car.chery.cherycan import CanBus
 from opendbc.car.chery.values import CarControllerParams, CherySafetyFlags
 from opendbc.car.interfaces import CarInterfaceBase
 
@@ -7,7 +8,11 @@ class CarInterface(CarInterfaceBase):
   @staticmethod
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
     ret.brand = "chery"
-    ret.safetyConfigs = [get_safety_config(structs.CarParams.SafetyModel.cheryCanFd)]
+    CAN = CanBus(fingerprint=fingerprint)
+    safety_configs = [get_safety_config(structs.CarParams.SafetyModel.cheryCanFd)]
+    if CAN.main >= 4:
+      safety_configs.insert(0, get_safety_config(structs.CarParams.SafetyModel.noOutput))
+    ret.safetyConfigs = safety_configs
     ret.radarUnavailable = True
     ret.alphaLongitudinalAvailable = True
     ret.openpilotLongitudinalControl = alpha_long
@@ -27,5 +32,6 @@ class CarInterface(CarInterfaceBase):
   @staticmethod
   def _get_params_sp(stock_cp: structs.CarParams, ret: structs.CarParamsSP, candidate, fingerprint: dict[int, dict[int, int]],
                      car_fw: list[structs.CarParams.CarFw], alpha_long: bool, is_release_sp: bool, docs: bool) -> structs.CarParamsSP:
-    stock_cp.enableBsm = 0x3A7 in fingerprint[2]
+    CAN = CanBus(fingerprint=fingerprint)
+    stock_cp.enableBsm = 0x4B1 in fingerprint[CAN.main] and 0x4B3 in fingerprint[CAN.main]
     return ret

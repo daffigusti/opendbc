@@ -35,6 +35,18 @@ def test_interface_lateral_and_alpha_long():
 def test_can_bus_offsets():
   assert (CanBus(fingerprint=fingerprint()).main, CanBus(fingerprint=fingerprint()).camera) == (0, 2)
 
+  offset_fingerprint = fingerprint()
+  offset_fingerprint[4] = {0x4B1: 8, 0x4B3: 8}
+  assert (CanBus(fingerprint=offset_fingerprint).main, CanBus(fingerprint=offset_fingerprint).camera) == (4, 6)
+
+  params = CarInterface.get_params(CAR.CHERY_OMODA_E5, offset_fingerprint, [], alpha_long=False, is_release=False, docs=False)
+  assert [config.safetyModel for config in params.safetyConfigs] == [
+    structs.CarParams.SafetyModel.noOutput,
+    structs.CarParams.SafetyModel.cheryCanFd,
+  ]
+  CarInterface.get_params_sp(params, CAR.CHERY_OMODA_E5, offset_fingerprint, [], alpha_long=False, is_release_sp=False, docs=False)
+  assert params.enableBsm
+
 
 def test_chery_platform_registered():
   assert CAR.CHERY_OMODA_E5 in PLATFORMS.values()

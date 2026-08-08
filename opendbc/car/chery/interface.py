@@ -12,15 +12,13 @@ class CarInterface(CarInterfaceBase):
     ret.alphaLongitudinalAvailable = True
     ret.openpilotLongitudinalControl = alpha_long
     if alpha_long:
-      ret.safetyConfigs[-1].safetyParam |= CherySafetyFlags.LONG_CONTROL
+      ret.safetyConfigs[-1].safetyParam |= CherySafetyFlags.LONG_CONTROL.value
     ret.steerControlType = structs.CarParams.SteerControlType.angle
     ret.transmissionType = structs.CarParams.TransmissionType.direct
     ret.steerActuatorDelay = 0.1
     ret.steerLimitTimer = 1.0
     ret.longitudinalActuatorDelay = 0.05
     ret.stopAccel = CarControllerParams.ACCEL_MIN
-    ret.vEgoStarting = 0.1
-    ret.vEgoStopping = 0.1
     ret.minEnableSpeed = -1.
     ret.minSteerSpeed = -1.
     ret.autoResumeSng = True

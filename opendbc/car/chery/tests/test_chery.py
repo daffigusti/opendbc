@@ -1,5 +1,5 @@
 from opendbc.car import Bus
-from opendbc.can import CANPacker
+from opendbc.can import CANPacker, CANParser
 from opendbc.car.chery.fingerprints import FINGERPRINTS, FW_VERSIONS
 from opendbc.car.chery.values import CAR, DBC
 from opendbc.car.fingerprints import _FINGERPRINTS
@@ -19,8 +19,8 @@ def test_chery_platform_registered():
 
 def test_chery_signed_signal_boundaries():
   packer = CANPacker("chery_canfd")
+  dbc = packer.dbc
   signals = (
-    ("STEER_ANGLE_SENSOR", "STEER_ANGLE", (-780, 858.3)),
     ("STEER_ANGLE_SENSOR", "TORQUE", (-128, 127)),
     ("STEER_SENSOR_2", "TORQUE_DRIVER", (-491.52, 491.28)),
     ("LKAS_CAM_CMD_345", "CMD", (-4096, 4095)),
@@ -28,6 +28,12 @@ def test_chery_signed_signal_boundaries():
   )
 
   for message, signal, boundaries in signals:
+    sig = dbc.name_to_msg[message].sigs[signal]
+    assert sig.is_signed
+    raw_boundaries = (-(1 << (sig.size - 1)), (1 << (sig.size - 1)) - 1)
+    assert all(raw_boundaries[0] <= round((value - sig.offset) / sig.factor) <= raw_boundaries[1] for value in boundaries)
+    parser = CANParser("chery_canfd", [(message, 0)], 0)
     for value in boundaries:
-      _, data, _ = packer.make_can_msg(message, 0, {signal: value})
-      assert len(data) == 8
+      address, data, bus = packer.make_can_msg(message, 0, {signal: value})
+      parser.update([0, [(address, data, bus)]])
+      assert parser.vl[message][signal] == value

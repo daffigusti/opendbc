@@ -3,12 +3,37 @@ from pathlib import Path
 import pytest
 
 from opendbc.car import Bus
+from opendbc.car import structs
 from opendbc.can import CANPacker, CANParser
+from opendbc.car.chery.cherycan import CanBus
 from opendbc.car.chery.fingerprints import FINGERPRINTS, FW_VERSIONS
-from opendbc.car.chery.values import CAR, DBC
+from opendbc.car.chery.interface import CarInterface
+from opendbc.car.chery.values import CAR, CherySafetyFlags, DBC
 from opendbc.car.fingerprints import _FINGERPRINTS
 from opendbc.car.structs import CarParams
 from opendbc.car.values import PLATFORMS
+
+
+def fingerprint():
+  return {bus: {} for bus in range(8)}
+
+
+def test_interface_lateral_and_alpha_long():
+  lateral = CarInterface.get_params(CAR.CHERY_OMODA_E5, fingerprint(), [], alpha_long=False, is_release=False, docs=False)
+  assert lateral.brand == "chery"
+  assert lateral.steerControlType == structs.CarParams.SteerControlType.angle
+  assert lateral.transmissionType == structs.CarParams.TransmissionType.direct
+  assert lateral.alphaLongitudinalAvailable
+  assert not lateral.openpilotLongitudinalControl
+  assert lateral.safetyConfigs[-1].safetyParam == 0
+
+  long = CarInterface.get_params(CAR.CHERY_OMODA_E5, fingerprint(), [], alpha_long=True, is_release=False, docs=False)
+  assert long.openpilotLongitudinalControl
+  assert long.safetyConfigs[-1].safetyParam & CherySafetyFlags.LONG_CONTROL
+
+
+def test_can_bus_offsets():
+  assert (CanBus(fingerprint=fingerprint()).main, CanBus(fingerprint=fingerprint()).camera) == (0, 2)
 
 
 def test_chery_platform_registered():

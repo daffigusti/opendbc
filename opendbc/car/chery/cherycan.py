@@ -3,11 +3,12 @@ from opendbc.car import CanBusBase
 STEER_ANGLE_OFFSET = -392
 STEER_ANGLE_SCALE = 10
 CRC_POLY = 0x1D
-CRC_XOR = 0x0A
+CRC_INIT = 0xFF
+CRC_XOR = 0xFF
 
 
 def calculate_crc(data: bytes) -> int:
-  crc = 0
+  crc = CRC_INIT
   for byte in data:
     crc ^= byte
     for _ in range(8):
@@ -17,6 +18,8 @@ def calculate_crc(data: bytes) -> int:
 
 def create_steering_control(packer, bus: int, apply_steer: float, lkas_enable: bool, stock_values: dict):
   command = int(apply_steer * STEER_ANGLE_SCALE + STEER_ANGLE_OFFSET)
+  if 0 <= command <= 2:
+    command = 2
   values = {
     "CMD": command,
     "NEW_SIGNAL_3": 1 if command > 1 else 0,
@@ -40,7 +43,7 @@ def create_button_control(packer, bus: int, frame: int, stock_values: dict, canc
   values.update({
     "ACC": 1 if cancel else 0,
     "RES_PLUS": 1 if resume else 0,
-    "COUNTER": frame % 0x0F,
+    "COUNTER": frame % 0x10,
   })
   _, dat, _ = packer.make_can_msg("STEER_BUTTON", bus, values)
   values["CHECKSUM"] = calculate_crc(dat[1:])
@@ -48,7 +51,7 @@ def create_button_control(packer, bus: int, frame: int, stock_values: dict, canc
 
 
 def create_acc_control(packer, bus: int, stock_values: dict, frame: int, long_active: bool,
-                       gas: float, accel: float, stopping: bool, full_stop: bool, resume: bool):
+                       gas: float, full_stop: bool, resume: bool):
   throttle = gas if long_active else -24
   values = {name: stock_values[name] for name in (
     "ACC_STATE_2", "NEW_SIGNAL_12", "NEW_SIGNAL_9", "NEW_SIGNAL_2", "STOPPING",
@@ -62,7 +65,8 @@ def create_acc_control(packer, bus: int, stock_values: dict, frame: int, long_ac
     "STOPPED": 1 if full_stop else 0 if long_active else stock_values["STOPPED"],
     "STOPPING": stock_values["STOPPING"],
     "GAS_PRESSED": 1 if resume else 0,
-    "COUNTER": frame % 0x0F,
+    "AEB_REQ_STOP": 0,
+    "COUNTER": frame % 0x10,
   })
   _, dat, _ = packer.make_can_msg("ACC_CMD", bus, values)
   values["CHECKSUM"] = calculate_crc(dat[:-1])

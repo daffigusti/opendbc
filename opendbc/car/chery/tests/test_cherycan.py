@@ -1,3 +1,5 @@
+import pytest
+
 from opendbc.can import CANPacker, CANParser
 from opendbc.car.chery.cherycan import calculate_crc, create_acc_control, create_button_control, create_steering_control
 
@@ -26,27 +28,59 @@ def test_inactive_steering_tracks_stock_frame():
   assert dat[-1] == calculate_crc(dat[:-1])
 
 
-def test_steering_captured_stock_fields_and_checksum():
+@pytest.mark.parametrize("apply_steer, fixture", [(-7.1, 0), (-7.0, 1)])
+def test_steering_captured_stock_fields_and_checksum(apply_steer, fixture):
   packer = CANPacker("chery_canfd")
   stock_parser = CANParser("chery_canfd", [("LKAS_CAM_CMD_345", 2)], 2)
-  captured = GOLDEN_FRAMES[(0x345, 2)][0]
+  captured = GOLDEN_FRAMES[(0x345, 2)][fixture]
   stock_parser.update([[0, [(0x345, captured, 2)]]])
   stock = stock_parser.vl["LKAS_CAM_CMD_345"]
-  _addr, dat, bus = create_steering_control(packer, 2, -7.1, False, stock)
+  _addr, dat, bus = create_steering_control(packer, 2, apply_steer, False, stock)
   assert (dat, bus) == (captured, 2)
 
 
-def test_button_counter_and_checksum():
+def test_active_steering_signals_and_checksum():
+  packer = CANPacker("chery_canfd")
+  stock = {name: 0 for name in (
+    "CMD", "NEW_SIGNAL_3", "LKA_ACTIVE", "SET_X0", "NEW_SIGNAL_5", "NEW_SIGNAL_6",
+    "NEW_SIGNAL_7", "NEW_SIGNAL_1", "CHECKSUM",
+  )}
+  address, dat, bus = create_steering_control(packer, 2, 39.4, True, stock)
+  parser = CANParser("chery_canfd", [("LKAS_CAM_CMD_345", 2)], 2)
+  parser.update([[0, [(address, dat, bus)]]])
+  values = parser.vl["LKAS_CAM_CMD_345"]
+  assert values["CMD"] == 2
+  assert values["LKA_ACTIVE"] == 1
+  assert values["NEW_SIGNAL_3"] == 1
+  assert values["CHECKSUM"] == calculate_crc(dat[:-1])
+
+
+@pytest.mark.parametrize("fixture, frame", [(0, 8), (1, 9)])
+def test_button_captured_frames(fixture, frame):
+  packer = CANPacker("chery_canfd")
+  captured = GOLDEN_FRAMES[(0x360, 0)][fixture]
+  parser = CANParser("chery_canfd", [("STEER_BUTTON", 2)], 2)
+  parser.update([[0, [(0x360, captured, 2)]]])
+  stock = parser.vl["STEER_BUTTON"]
+  _, dat, bus = create_button_control(packer, 2, frame, stock)
+  assert (dat, bus) == (captured, 2)
+  assert dat[0] == (0x33, 0xDD)[fixture]
+  assert dat[0] == calculate_crc(dat[1:])
+
+
+def test_counter_wraps_at_four_bits():
   packer = CANPacker("chery_canfd")
   stock = {name: 0 for name in (
     "ACC", "CC_BTN", "RES_PLUS", "RES_MINUS", "NEW_SIGNAL_1",
-    "GAP_ADJUST_UP", "GAP_ADJUST_DOWN", "COUNTER", "CHECKSUM",
+    "GAP_ADJUST_UP", "GAP_ADJUST_DOWN",
   )}
-  _, first, _ = create_button_control(packer, 2, 3, stock, cancel=True)
-  _, second, _ = create_button_control(packer, 2, 4, stock, resume=True)
-  assert first[1] != second[1]
-  assert first[0] == calculate_crc(first[1:])
-  assert second[0] == calculate_crc(second[1:])
+  parser = CANParser("chery_canfd", [("STEER_BUTTON", 2)], 2)
+  counters = []
+  for frame in (14, 15, 16):
+    address, dat, bus = create_button_control(packer, 2, frame, stock)
+    parser.update([[0, [(address, dat, bus)]]])
+    counters.append(parser.vl["STEER_BUTTON"]["COUNTER"])
+  assert counters == [14, 15, 0]
 
 
 def test_acc_counter_and_checksum():
@@ -56,6 +90,33 @@ def test_acc_counter_and_checksum():
     "NEW_SIGNAL_2", "STOPPING", "NEW_SIGNAL_13", "NEW_SIGNAL_8", "NEW_SIGNAL_5",
     "NEW_SIGNAL_6", "NEW_SIGNAL_10", "NEW_SIGNAL_3", "NEW_SIGNAL_4", "AEB_REQ_STOP",
   )}
-  _, dat, bus = create_acc_control(packer, 2, stock, 7, True, 0, 0, False, False, False)
+  _, dat, bus = create_acc_control(packer, 2, stock, 7, True, 0, False, False)
   assert bus == 2
   assert dat[-1] == calculate_crc(dat[:-1])
+
+
+@pytest.mark.parametrize("fixture, frame", [(0, 15), (1, 16)])
+def test_acc_captured_frames(fixture, frame):
+  packer = CANPacker("chery_canfd")
+  captured = GOLDEN_FRAMES[(0x3A2, 2)][fixture]
+  parser = CANParser("chery_canfd", [("ACC_CMD", 2)], 2)
+  parser.update([[0, [(0x3A2, captured, 2)]]])
+  stock = parser.vl["ACC_CMD"]
+  _, dat, bus = create_acc_control(packer, 2, stock, frame, False, 0, False, False)
+  assert (dat, bus) == (captured, 2)
+  assert stock["CMD"] == -24
+  assert stock["ACC_STATE"] == 1
+
+
+def test_acc_request_stop_is_not_copied_from_stock():
+  packer = CANPacker("chery_canfd")
+  stock = {name: 0 for name in (
+    "ACC_STATE", "STOPPED", "ACC_STATE_2", "NEW_SIGNAL_12", "NEW_SIGNAL_9",
+    "NEW_SIGNAL_2", "STOPPING", "NEW_SIGNAL_13", "NEW_SIGNAL_8", "NEW_SIGNAL_5",
+    "NEW_SIGNAL_6", "NEW_SIGNAL_10", "NEW_SIGNAL_3", "NEW_SIGNAL_4", "AEB_REQ_STOP",
+  )}
+  stock["AEB_REQ_STOP"] = 7
+  _, dat, _ = create_acc_control(packer, 2, stock, 0, False, 0, False, False)
+  parser = CANParser("chery_canfd", [("ACC_CMD", 2)], 2)
+  parser.update([[0, [(0x3A2, dat, 2)]]])
+  assert parser.vl["ACC_CMD"]["AEB_REQ_STOP"] == 0

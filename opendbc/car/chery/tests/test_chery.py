@@ -1,3 +1,7 @@
+from pathlib import Path
+
+import pytest
+
 from opendbc.car import Bus
 from opendbc.can import CANPacker, CANParser
 from opendbc.car.chery.fingerprints import FINGERPRINTS, FW_VERSIONS
@@ -21,19 +25,32 @@ def test_chery_signed_signal_boundaries():
   packer = CANPacker("chery_canfd")
   dbc = packer.dbc
   signals = (
-    ("STEER_ANGLE_SENSOR", "TORQUE", (-128, 127)),
-    ("STEER_SENSOR_2", "TORQUE_DRIVER", (-491.52, 491.28)),
-    ("LKAS_CAM_CMD_345", "CMD", (-4096, 4095)),
-    ("ACC_CMD", "CMD", (-511, 511)),
+    ("STEER_ANGLE_SENSOR", "STEER_ANGLE", (-780, 858.3), False),
+    ("STEER_ANGLE_SENSOR", "TORQUE", (-128, 127), True),
+    ("STEER_SENSOR_2", "TORQUE_DRIVER", (-491.52, 491.28), True),
+    ("LKAS_CAM_CMD_345", "CMD", (-4096, 4095), True),
+    ("ACC_CMD", "CMD", (-511, 511), True),
   )
 
-  for message, signal, boundaries in signals:
+  for message, signal, boundaries, is_signed in signals:
     sig = dbc.name_to_msg[message].sigs[signal]
-    assert sig.is_signed
-    raw_boundaries = (-(1 << (sig.size - 1)), (1 << (sig.size - 1)) - 1)
+    assert sig.is_signed is is_signed
+    raw_boundaries = (-(1 << (sig.size - 1)), (1 << (sig.size - 1)) - 1) if is_signed else (0, (1 << sig.size) - 1)
     assert all(raw_boundaries[0] <= round((value - sig.offset) / sig.factor) <= raw_boundaries[1] for value in boundaries)
     parser = CANParser("chery_canfd", [(message, 0)], 0)
     for value in boundaries:
       address, data, bus = packer.make_can_msg(message, 0, {signal: value})
       parser.update([0, [(address, data, bus)]])
-      assert parser.vl[message][signal] == value
+      assert parser.vl[message][signal] == pytest.approx(value)
+
+
+def test_chery_signal_ranges_declared_in_dbc():
+  dbc_lines = set((Path(__file__).parents[3] / "dbc/chery_canfd.dbc").read_text().splitlines())
+  assert {
+    " SG_ STEER_ANGLE : 7|14@0+ (0.1,-780) [-780|858.3] \"\" XXX",
+    " SG_ TORQUE : 16|8@1- (1,0) [-128|127] \"\" XXX",
+    " SG_ TORQUE_DRIVER : 7|12@0- (0.24,0) [-491.52|491.28] \"\" XXX",
+    " SG_ CMD : 6|13@0- (1,0) [-4096|4095] \"\" XXX",
+    " SG_ CMD : 6|10@0- (1,0) [-511|511] \"\" XXX",
+    " SG_ ACC_STATE : 9|2@0+ (1,0) [0|3] \"\" XXX",
+  } <= dbc_lines

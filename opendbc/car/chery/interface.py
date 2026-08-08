@@ -1,10 +1,19 @@
 from opendbc.car import get_safety_config, structs
 from opendbc.car.chery.cherycan import CanBus
+from opendbc.car.chery.carstate import CarState
 from opendbc.car.chery.values import CarControllerParams, CherySafetyFlags
-from opendbc.car.interfaces import CarInterfaceBase
+from opendbc.car.interfaces import CarControllerBase, CarInterfaceBase
+
+
+class CarController(CarControllerBase):
+  def update(self, CC, CC_SP, CS, now_nanos):
+    return structs.CarControl.Actuators(), []
 
 
 class CarInterface(CarInterfaceBase):
+  CarState = CarState
+  CarController = CarController
+
   @staticmethod
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
     ret.brand = "chery"

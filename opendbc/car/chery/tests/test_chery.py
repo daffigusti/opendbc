@@ -6,6 +6,7 @@ from opendbc.car import Bus
 from opendbc.car import structs
 from opendbc.can import CANPacker, CANParser
 from opendbc.car.chery.cherycan import CanBus
+from opendbc.car.chery.carstate import CarState
 from opendbc.car.chery.fingerprints import FINGERPRINTS, FW_VERSIONS
 from opendbc.car.chery.interface import CarInterface
 from opendbc.car.chery.values import CAR, CherySafetyFlags, DBC
@@ -91,3 +92,73 @@ def test_chery_signal_ranges_declared_in_dbc():
     " SG_ CMD : 6|10@0- (1,0) [-511|511] \"\" XXX",
     " SG_ ACC_STATE : 9|2@0+ (1,0) [0|3] \"\" XXX",
   } <= dbc_lines
+
+
+def test_parser_layout_matches_route():
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
+  assert set(parsers) == {Bus.pt, Bus.cam, Bus.loopback}
+  assert parsers[Bus.pt].bus == 0
+  assert parsers[Bus.cam].bus == 2
+  assert parsers[Bus.loopback].bus == 128
+
+
+def test_chery_state_update_decodes_route_signals():
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
+  packer = CANPacker("chery_canfd")
+
+  messages = {
+    Bus.pt: [
+      ("WHEEL_SPEED_FRNT", {"WHEEL_SPEED_FR": 10, "WHEEL_SPEED_FL": 11}),
+      ("WHEEL_SPEED_REAR", {"WHEEL_SPEED_RR": 12, "WHEEL_SPEED_RL": 13}),
+      ("STEER_ANGLE_SENSOR", {"STEER_ANGLE": -12.3, "TORQUE": -7}),
+      ("STEER_SENSOR_2", {"TORQUE_DRIVER": -24}),
+      ("BRAKE_DATA", {"BRAKE_POS": 25}),
+      ("ENGINE_DATA", {"GAS": 4, "BRAKE_PRESS": 1}),
+      ("STEER_BUTTON", {"ACC": 1, "RES_PLUS": 1}),
+    ],
+    Bus.cam: [
+      ("ACC", {"ACC_ACTIVE": 1, "AEB_ACTIVE": 1}),
+      ("ACC_CMD", {"STOPPED": 0, "GAS_PRESSED": 1}),
+      ("SETTING", {"CC_SPEED": 72, "ACC_AVAILABLE": 1}),
+      ("LKAS_STATE", {"LKA_ACTIVE": 1}),
+    ],
+    Bus.loopback: [],
+  }
+  for bus, bus_messages in messages.items():
+    frames = []
+    for message, values in bus_messages:
+      address, data, _ = packer.make_can_msg(message, parsers[bus].bus, values)
+      frames.append((address, data, parsers[bus].bus))
+    if frames:
+      parsers[bus].update([0, frames])
+
+  state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
+  assert state.wheelSpeeds.fl == pytest.approx(11 / 3.6, abs=1e-3)
+  assert state.wheelSpeeds.fr == pytest.approx(10 / 3.6, abs=1e-3)
+  assert state.steeringAngleDeg == pytest.approx(-12.3)
+  assert state.steeringTorque == pytest.approx(-24)
+  assert state.steeringTorqueEps == pytest.approx(-7)
+  assert state.brakePressed
+  assert state.gasPressed
+  assert state.cruiseState.available
+  assert state.cruiseState.enabled
+  assert state.cruiseState.speed == pytest.approx(72 / 3.6)
+  assert state.stockAeb
+  assert {str(event.type) for event in state.buttonEvents} == {"mainCruise", "accelCruise"}
+
+
+def test_chery_state_update_decodes_bsm_when_enabled():
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  cp.enableBsm = True
+  parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
+  packer = CANPacker("chery_canfd")
+  frames = []
+  for message, values in (("BSM_LEFT", {"BSM_LEFT_DETECT": 1}), ("BSM_RIGHT", {"BSM_RIGHT_DETECT": 1})):
+    address, data, bus = packer.make_can_msg(message, parsers[Bus.pt].bus, values)
+    frames.append((address, data, bus))
+  parsers[Bus.pt].update([0, frames])
+  state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
+  assert state.leftBlindspot
+  assert state.rightBlindspot

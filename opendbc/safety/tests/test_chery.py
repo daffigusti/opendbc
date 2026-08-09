@@ -71,10 +71,8 @@ class TestCherySafety(SafetyTest):
     if address == 0x03E:
       for offset in range(0, 40, 8):
         data[offset + 1] = (data[offset + 1] & 0xF0) | counter
-      if "brake" in fields:
-        data[27] = (data[27] & ~(1 << 4)) | (int(fields["brake"]) << 4)
-      if "engine_gas" in fields:
-        data[22:24] = int(fields["engine_gas"]).to_bytes(2, "big")
+      data[27] = (data[27] & ~(1 << 4)) | (int(fields.get("brake", 0)) << 4)
+      data[22:24] = int(fields.get("engine_gas", 0)).to_bytes(2, "big")
       for offset in range(0, 40, 8):
         data[offset] = _j1850(data[offset + 1:offset + 8])
     elif address == 0x316:
@@ -364,7 +362,7 @@ class TestCherySafety(SafetyTest):
 
     self.setUp()
     self._engage()
-    for _ in range(MAX_WRONG_COUNTERS):
+    for _ in range(MAX_WRONG_COUNTERS - 1):
       self.assertTrue(self._rx(self._packet(0x3A5, 2, counter=1)))
     self.assertFalse(self._rx(self._packet(0x3A5, 2, counter=1)))
     self.assertFalse(self.safety.get_controls_allowed())

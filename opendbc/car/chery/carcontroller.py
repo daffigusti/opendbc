@@ -58,7 +58,7 @@ class CarController(CarControllerBase):
       long_state = structs.CarControl.Actuators.LongControlState
       full_stop = actuators.longControlState == long_state.stopping
       can_sends.append(create_acc_control(
-        self.packer, self.CAN.main, CS.acc_cmd, self.frame, CC.longActive,
+        self.packer, self.CAN.main, CS.acc_cmd, CC.longActive,
         actuators.accel, full_stop, CC.cruiseControl.resume,
       ))
 

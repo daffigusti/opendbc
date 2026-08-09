@@ -102,8 +102,9 @@ def test_acc_counter_and_checksum():
     "ACC_STATE", "STOPPED", "ACC_STATE_2", "NEW_SIGNAL_12", "NEW_SIGNAL_9",
     "NEW_SIGNAL_2", "STOPPING", "NEW_SIGNAL_13", "NEW_SIGNAL_8", "NEW_SIGNAL_5",
     "NEW_SIGNAL_6", "NEW_SIGNAL_10", "NEW_SIGNAL_3", "NEW_SIGNAL_4", "AEB_REQ_STOP",
+    "COUNTER",
   )}
-  _, dat, bus = create_acc_control(packer, 2, stock, 7, True, 0, False, False)
+  _, dat, bus = create_acc_control(packer, 2, stock, True, 0, False, False)
   assert bus == 2
   assert dat[-1] == calculate_crc(dat[:-1])
 
@@ -115,8 +116,9 @@ def test_acc_command_maps_clamped_piecewise_accel(gas, command):
     "ACC_STATE", "STOPPED", "ACC_STATE_2", "NEW_SIGNAL_12", "NEW_SIGNAL_9",
     "NEW_SIGNAL_2", "STOPPING", "NEW_SIGNAL_13", "NEW_SIGNAL_8", "NEW_SIGNAL_5",
     "NEW_SIGNAL_6", "NEW_SIGNAL_10", "NEW_SIGNAL_3", "NEW_SIGNAL_4", "AEB_REQ_STOP",
+    "COUNTER",
   )}
-  address, dat, bus = create_acc_control(packer, 0, stock, 0, True, gas, False, False)
+  address, dat, bus = create_acc_control(packer, 0, stock, True, gas, False, False)
   parser = CANParser("chery_canfd", [("ACC_CMD", 0)], 0)
   parser.update([[0, [(address, dat, bus)]]])
   assert parser.vl["ACC_CMD"]["CMD"] == command
@@ -129,11 +131,12 @@ def test_acc_full_stop_never_overrides_command_and_inactive_preserves_stock_stat
     "ACC_STATE", "STOPPED", "ACC_STATE_2", "NEW_SIGNAL_12", "NEW_SIGNAL_9",
     "NEW_SIGNAL_2", "STOPPING", "NEW_SIGNAL_13", "NEW_SIGNAL_8", "NEW_SIGNAL_5",
     "NEW_SIGNAL_6", "NEW_SIGNAL_10", "NEW_SIGNAL_3", "NEW_SIGNAL_4", "AEB_REQ_STOP",
+    "COUNTER",
   )}
   stock.update({"ACC_STATE": 1, "STOPPED": 1})
   parser = CANParser("chery_canfd", [("ACC_CMD", 0)], 0)
   for long_active in (False, True):
-    address, dat, bus = create_acc_control(packer, 0, stock, 0, long_active, 2.0, full_stop, False)
+    address, dat, bus = create_acc_control(packer, 0, stock, long_active, 2.0, full_stop, False)
     parser.update([[0, [(address, dat, bus)]]])
     values = parser.vl["ACC_CMD"]
     assert values["CMD"] == (-24 if not long_active else 511)
@@ -145,17 +148,35 @@ def test_acc_full_stop_never_overrides_command_and_inactive_preserves_stock_stat
       assert values["STOPPED"] == 1
 
 
-@pytest.mark.parametrize("fixture, frame", [(0, 15), (1, 16)])
-def test_acc_captured_frames(fixture, frame):
+@pytest.mark.parametrize("fixture", [0, 1])
+def test_acc_captured_frames(fixture):
   packer = CANPacker("chery_canfd")
   captured = GOLDEN_FRAMES[(0x3A2, 2)][fixture]
   parser = CANParser("chery_canfd", [("ACC_CMD", 2)], 2)
   parser.update([[0, [(0x3A2, captured, 2)]]])
   stock = parser.vl["ACC_CMD"]
-  _, dat, bus = create_acc_control(packer, 2, stock, frame, False, 0, False, False)
+  _, dat, bus = create_acc_control(packer, 2, stock, False, 0, False, False)
   assert (dat, bus) == (captured, 2)
   assert stock["CMD"] == -24
   assert stock["ACC_STATE"] == 1
+
+
+def test_acc_counter_copies_arbitrary_stock_and_tracks_stock_sequence():
+  packer = CANPacker("chery_canfd")
+  parser = CANParser("chery_canfd", [("ACC_CMD", 2)], 2)
+  stock = {name: 0 for name in (
+    "ACC_STATE", "STOPPED", "ACC_STATE_2", "NEW_SIGNAL_12", "NEW_SIGNAL_9",
+    "NEW_SIGNAL_2", "STOPPING", "NEW_SIGNAL_13", "NEW_SIGNAL_8", "NEW_SIGNAL_5",
+    "NEW_SIGNAL_6", "NEW_SIGNAL_10", "NEW_SIGNAL_3", "NEW_SIGNAL_4", "AEB_REQ_STOP",
+    "COUNTER",
+  )}
+  counters = []
+  for counter in (7, 8, 9, 10):
+    stock["COUNTER"] = counter
+    address, dat, bus = create_acc_control(packer, 2, stock, False, 0, False, False)
+    parser.update([[0, [(address, dat, bus)]]])
+    counters.append(parser.vl["ACC_CMD"]["COUNTER"])
+  assert counters == [7, 8, 9, 10]
 
 
 def test_acc_request_stop_is_not_copied_from_stock():
@@ -164,9 +185,10 @@ def test_acc_request_stop_is_not_copied_from_stock():
     "ACC_STATE", "STOPPED", "ACC_STATE_2", "NEW_SIGNAL_12", "NEW_SIGNAL_9",
     "NEW_SIGNAL_2", "STOPPING", "NEW_SIGNAL_13", "NEW_SIGNAL_8", "NEW_SIGNAL_5",
     "NEW_SIGNAL_6", "NEW_SIGNAL_10", "NEW_SIGNAL_3", "NEW_SIGNAL_4", "AEB_REQ_STOP",
+    "COUNTER",
   )}
   stock["AEB_REQ_STOP"] = 7
-  _, dat, _ = create_acc_control(packer, 2, stock, 0, False, 0, False, False)
+  _, dat, _ = create_acc_control(packer, 2, stock, False, 0, False, False)
   parser = CANParser("chery_canfd", [("ACC_CMD", 2)], 2)
   parser.update([[0, [(0x3A2, dat, 2)]]])
   assert parser.vl["ACC_CMD"]["AEB_REQ_STOP"] == 0

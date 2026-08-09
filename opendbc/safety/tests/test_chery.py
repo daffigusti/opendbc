@@ -77,9 +77,14 @@ class TestCherySafety(SafetyTest):
     return self._packet(0x1D3, bus, angle_raw=round((angle + 780) * 10)) if length == 8 else \
       libsafety_py.make_CANPacket(0x1D3, bus, GOLDEN_FRAMES[(0x1D3, 0)][:length])
 
-  def _acc_cmd_msg(self, command, aeb_req_stop=0):
+  def _acc_cmd_msg(self, command, aeb_req_stop=0, accel_on=None, gas_pressed=0):
     packer = CANPacker("chery_canfd")
-    address, data, bus = packer.make_can_msg("ACC_CMD", 0, {"CMD": command, "AEB_REQ_STOP": aeb_req_stop})
+    if accel_on is None:
+      accel_on = command >= 0
+    address, data, bus = packer.make_can_msg("ACC_CMD", 0, {
+      "CMD": command, "ACCEL_ON": accel_on, "GAS_PRESSED": gas_pressed,
+      "AEB_REQ_STOP": aeb_req_stop,
+    })
     data = bytearray(data)
     data[-1] = calculate_crc(bytes(data[:-1]))
     return libsafety_py.make_CANPacket(address, bus, data)
@@ -354,6 +359,15 @@ class TestCherySafety(SafetyTest):
     self.assertFalse(self._tx(self._acc_cmd_msg(-512)))
     self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), -1)
 
+  def test_longitudinal_accel_on_and_gas_pressed_contract(self):
+    self._enable_longitudinal()
+    self.safety.set_controls_allowed(True)
+    self.assertFalse(self._tx(self._acc_cmd_msg(511, accel_on=0)))
+    self.assertFalse(self._tx(self._acc_cmd_msg(-24, accel_on=1)))
+    self.assertTrue(self._tx(self._acc_cmd_msg(-24, gas_pressed=1)))
+    self.safety.set_controls_allowed(False)
+    self.assertFalse(self._tx(self._acc_cmd_msg(-24, gas_pressed=1)))
+
   def test_longitudinal_aeb_and_rx_inhibitors_allow_only_inactive_command(self):
     self._enable_longitudinal()
     for field, address in (("brake", 0x03E), ("engine_gas", 0x03E),
@@ -364,12 +378,25 @@ class TestCherySafety(SafetyTest):
       self._rx_field(address, **{field: value})
       self.safety.set_controls_allowed(True)
       self.assertFalse(self._tx(self._acc_cmd_msg(511)), field)
-      self.assertTrue(self._tx(self._acc_cmd_msg(-24)), field)
+      inactive_allowed = field != "aeb"
+      self.assertEqual(inactive_allowed, self._tx(self._acc_cmd_msg(-24)), field)
     self.setUp()
     self._enable_longitudinal()
     self.safety.set_controls_allowed(True)
     for aeb_req_stop in range(1, 16):
       self.assertFalse(self._tx(self._acc_cmd_msg(-24, aeb_req_stop)))
+
+  def test_stock_aeb_rejects_all_host_acc_and_restores_oem_forwarding(self):
+    self._enable_longitudinal()
+    self._rx_field(0x3A5, aeb=1, active=1)
+    self.safety.set_controls_allowed(True)
+    self.assertFalse(self._tx(self._acc_cmd_msg(-24)))
+    self.assertFalse(self._tx(self._acc_cmd_msg(511)))
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), 0)
+    self._rx_field(0x3A5, aeb=0, active=0)
+    self._rx_field(0x3A2, state=2)
+    self.assertTrue(self._tx(self._acc_cmd_msg(-24)))
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), -1)
 
   def test_angle_command_signed13_boundaries_and_message_shape(self):
     self.safety.set_controls_allowed(True)

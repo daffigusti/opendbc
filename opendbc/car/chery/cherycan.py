@@ -81,7 +81,7 @@ def create_button_control(packer, bus: int, frame: int, stock_values: dict, canc
   return packer.make_can_msg("STEER_BUTTON", bus, values)
 
 
-def create_acc_control(packer, bus: int, stock_values: dict, frame: int, long_active: bool,
+def create_acc_control(packer, bus: int, stock_values: dict, long_active: bool,
                        gas: float, full_stop: bool, resume: bool):
   if long_active:
     gas = max(ACCEL_MIN, min(gas, ACCEL_MAX))
@@ -103,9 +103,10 @@ def create_acc_control(packer, bus: int, stock_values: dict, frame: int, long_ac
     "ACC_STATE": 2 if long_active and full_stop else 3 if long_active else stock_values["ACC_STATE"],
     "STOPPED": 1 if long_active and full_stop else 0 if long_active else stock_values["STOPPED"],
     "STOPPING": stock_values["STOPPING"],
-    "GAS_PRESSED": 1 if resume else 0,
+    # Keep OEM AEB request path authoritative; host never requests AEB stop.
     "AEB_REQ_STOP": 0,
-    "COUNTER": frame % 0x10,
+    "GAS_PRESSED": 1 if long_active and resume else 0,
+    "COUNTER": stock_values["COUNTER"],
   })
   _, dat, _ = packer.make_can_msg("ACC_CMD", bus, values)
   values["CHECKSUM"] = calculate_crc(dat[:-1])

@@ -164,7 +164,7 @@ def test_longitudinal_alpha_gate_and_50hz_output_shape():
   stock = {name: 0 for name in (
     "ACC_STATE", "STOPPED", "ACC_STATE_2", "NEW_SIGNAL_12", "NEW_SIGNAL_9",
     "NEW_SIGNAL_2", "STOPPING", "NEW_SIGNAL_13", "NEW_SIGNAL_8", "NEW_SIGNAL_5",
-    "NEW_SIGNAL_6", "NEW_SIGNAL_10", "NEW_SIGNAL_3", "NEW_SIGNAL_4", "AEB_REQ_STOP",
+    "NEW_SIGNAL_6", "NEW_SIGNAL_10", "NEW_SIGNAL_3", "NEW_SIGNAL_4", "AEB_REQ_STOP", "COUNTER",
   )}
   for alpha_long, expected_count in ((False, 0), (True, 50)):
     controller = make_controller()

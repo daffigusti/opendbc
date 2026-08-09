@@ -117,13 +117,19 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
     // ACC_CMD CMD is signed 10-bit Motorola: bits 6..15.
     const uint16_t cmd_raw = (uint16_t)(((msg->data[0] & 0x7FU) << 3U) | (msg->data[1] >> 5U));
     const int command = to_signed(cmd_raw, 10);
+    const bool accel_on = GET_BIT(msg, 7U);
+    const bool gas_pressed_cmd = GET_BIT(msg, 47U);
     const uint8_t aeb_req_stop = (msg->data[6] >> 4U) & 0x0FU;
-    if (aeb_req_stop != 0U || command < -511 || command > 511) {
+    if (aeb_req_stop != 0U || command < -511 || command > 511 || accel_on != (command >= 0)) {
+      return false;
+    }
+    if (chery_stock_aeb) {
       return false;
     }
     // Inhibited and inactive states may only transmit stock's inactive command.
     // Check raw RX-derived inhibitors directly: test setters can override controls_allowed.
-    if ((!controls_allowed || brake_pressed || gas_pressed || chery_stock_aeb) && command != -24) {
+    if ((!controls_allowed || brake_pressed || gas_pressed) &&
+        (command != -24 || gas_pressed_cmd)) {
       return false;
     }
     return true;
@@ -167,6 +173,10 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
 
 static bool chery_fwd_hook(int bus_num, int addr) {
   if (bus_num == 2 && addr == 0x3A2U) {
+    // Preserve OEM AEB passthrough so stock system retains emergency braking authority.
+    if (chery_stock_aeb) {
+      return 0;
+    }
     return chery_longitudinal ? -1 : 0;
   }
   // Let stock steering pass through only when the measured rack angle is
@@ -249,7 +259,7 @@ static safety_config chery_init(uint16_t param) {
   };
   static const CanMsg chery_tx_msgs[] = {{0x345, 0, 8, .check_relay = true, .disable_static_blocking = true}};
   static const CanMsg chery_long_tx_msgs[] = {{0x345, 0, 8, .check_relay = true, .disable_static_blocking = true},
-                                              {0x3A2, 0, 8, .check_relay = true}};
+                                              {0x3A2, 0, 8, .check_relay = true, .disable_static_blocking = true}};
   safety_config config = {
     .rx_checks = chery_rx_checks,
     .rx_checks_len = sizeof(chery_rx_checks) / sizeof(chery_rx_checks[0]),

@@ -12,7 +12,7 @@ class TestBuild(unittest.TestCase):
     packet[0].bus = 0
     packet[0].data_len_code = 8
     raw = command & 0x3FF
-    packet[0].data[0] = (raw >> 3) & 0x7F
+    packet[0].data[0] = ((raw >> 3) & 0x7F) | (int(command >= 0) << 7)
     packet[0].data[1] = (raw & 0x7) << 5
     packet[0].data[6] = (aeb_req_stop & 0xF) << 4
     return packet

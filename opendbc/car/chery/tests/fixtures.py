@@ -1,4 +1,3 @@
-ROUTE_SOURCE = "private owner full rlog, segment 0"
 VIN_WMI = "MF7"
 ENGINE_FW = b"00.02.12"
 

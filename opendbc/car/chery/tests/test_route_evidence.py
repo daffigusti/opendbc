@@ -1,8 +1,7 @@
-from .fixtures import ENGINE_FW, GOLDEN_FRAMES, ROUTE_SOURCE, RX_LAYOUT, VIN_WMI
+from .fixtures import ENGINE_FW, GOLDEN_FRAMES, RX_LAYOUT, VIN_WMI
 
 
-def test_route_identity():
-  assert ROUTE_SOURCE == "private owner full rlog, segment 0"
+def test_vehicle_identity():
   assert VIN_WMI == "MF7"
   assert len(VIN_WMI) == 3
   assert ENGINE_FW == b"00.02.12"

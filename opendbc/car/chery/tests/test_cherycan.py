@@ -120,3 +120,51 @@ def test_acc_request_stop_is_not_copied_from_stock():
   parser = CANParser("chery_canfd", [("ACC_CMD", 2)], 2)
   parser.update([[0, [(0x3A2, dat, 2)]]])
   assert parser.vl["ACC_CMD"]["AEB_REQ_STOP"] == 0
+
+
+def j1850(data):
+  crc = 0xFF
+  for byte in data:
+    crc ^= byte
+    for _ in range(8):
+      crc = ((crc << 1) ^ 0x1D) & 0xFF if crc & 0x80 else (crc << 1) & 0xFF
+  return crc ^ 0xFF
+
+
+def test_integrity_fields_decode_from_golden_frames():
+  parser = CANParser("chery_canfd", [("ENGINE_DATA", 0), ("STEER_ANGLE_SENSOR", 0),
+                                     ("WHEEL_SPEED_FRNT", 0), ("STEER_SENSOR_2", 0)], 0)
+  for address, message in ((0x03E, "ENGINE_DATA"), (0x1D3, "STEER_ANGLE_SENSOR"),
+                           (0x316, "WHEEL_SPEED_FRNT"), (0x394, "STEER_SENSOR_2")):
+    for frame in GOLDEN_FRAMES[(address, 0)]:
+      parser.update([[0, [(address, frame, 0)]]])
+      values = parser.vl[message]
+      if address == 0x03E:
+        for island in range(5):
+          assert values[f"ENGINE_DATA_CHECKSUM_{island}"] == frame[island * 8]
+          assert values[f"ENGINE_DATA_COUNTER_{island}"] == frame[island * 8 + 1] & 0xF
+      else:
+        assert values["COUNTER"] == frame[6] & 0xF
+        assert values["CHECKSUM"] == frame[7]
+
+
+def test_j1850_integrity_on_committed_golden_frames():
+  for address, bus in ((0x1D3, 0), (0x394, 0), (0x3A2, 2), (0x3A5, 2)):
+    for frame in GOLDEN_FRAMES[(address, bus)]:
+      assert frame[-1] == j1850(frame[:-1])
+  for frame in GOLDEN_FRAMES[(0x03E, 0)]:
+    for offset in range(0, 40, 8):
+      assert frame[offset] == j1850(frame[offset + 1:offset + 8])
+
+
+def test_additive_complement_and_observed_counter_progression():
+  for frame in GOLDEN_FRAMES[(0x316, 0)]:
+    assert frame[-1] == (0xFF - sum(frame[:-1])) & 0xFF
+  for address, bus in ((0x03E, 0), (0x1D3, 0), (0x394, 0), (0x3A2, 2), (0x3A5, 2)):
+    frames = GOLDEN_FRAMES[(address, bus)]
+    if address == 0x03E:
+      sequences = [[frame[offset + 1] & 0xF for frame in frames] for offset in range(0, 40, 8)]
+    else:
+      sequences = [[frame[6] & 0xF for frame in frames]]
+    for sequence in sequences:
+      assert all((next_value - value) % 16 == 1 for value, next_value in zip(sequence, sequence[1:], strict=False))

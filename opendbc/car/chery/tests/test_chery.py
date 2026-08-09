@@ -97,6 +97,18 @@ def test_chery_signal_ranges_declared_in_dbc():
     " SG_ CMD : 6|13@0- (1,0) [-4096|4095] \"\" XXX",
     " SG_ CMD : 6|10@0- (1,0) [-511|511] \"\" XXX",
     " SG_ ACC_STATE : 9|2@0+ (1,0) [0|3] \"\" XXX",
+    " SG_ COUNTER : 48|4@1+ (1,0) [0|15] \"\" XXX",
+    " SG_ CHECKSUM : 56|8@1+ (1,0) [0|255] \"\" XXX",
+    " SG_ ENGINE_DATA_CHECKSUM_0 : 0|8@1+ (1,0) [0|255] \"\" XXX",
+    " SG_ ENGINE_DATA_COUNTER_0 : 8|4@1+ (1,0) [0|15] \"\" XXX",
+    " SG_ ENGINE_DATA_CHECKSUM_1 : 64|8@1+ (1,0) [0|255] \"\" XXX",
+    " SG_ ENGINE_DATA_COUNTER_1 : 72|4@1+ (1,0) [0|15] \"\" XXX",
+    " SG_ ENGINE_DATA_CHECKSUM_2 : 128|8@1+ (1,0) [0|255] \"\" XXX",
+    " SG_ ENGINE_DATA_COUNTER_2 : 136|4@1+ (1,0) [0|15] \"\" XXX",
+    " SG_ ENGINE_DATA_CHECKSUM_3 : 192|8@1+ (1,0) [0|255] \"\" XXX",
+    " SG_ ENGINE_DATA_COUNTER_3 : 200|4@1+ (1,0) [0|15] \"\" XXX",
+    " SG_ ENGINE_DATA_CHECKSUM_4 : 256|8@1+ (1,0) [0|255] \"\" XXX",
+    " SG_ ENGINE_DATA_COUNTER_4 : 264|4@1+ (1,0) [0|15] \"\" XXX",
   } <= dbc_lines
 
 

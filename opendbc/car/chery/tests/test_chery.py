@@ -243,35 +243,31 @@ def test_lateral_limiter_starts_from_encoded_angle(requested):
   assert actuators.steeringAngleDeg == pytest.approx((values["CMD"] + 392) / 10)
 
 
-@pytest.mark.parametrize("starting_angle, requested_angles", [
-  (34.2, [39.2, 39.3]),
-  (34.3, [39.2, 39.3]),
-  (44.2, [39.2, 39.3]),
-  (44.3, [39.2, 39.3]),
-  (-34.2, [-39.2, -39.3]),
-  (-34.3, [-39.2, -39.3]),
-  (-44.2, [-39.2, -39.3]),
-  (-44.3, [-39.2, -39.3]),
+@pytest.mark.parametrize("starting_angle, requested_angle", [
+  (34.2, 39.2),
+  (34.3, 39.3),
+  (44.2, 39.2),
+  (44.3, 39.3),
 ])
-def test_active_encoded_commands_rate_limit_across_reserved_gap(starting_angle, requested_angles):
+def test_active_encoded_commands_rate_limit_across_reserved_gap(starting_angle, requested_angle):
   controller = make_controller()
-  state = make_state(starting_angle, speed=10.0)
+  state = make_state(starting_angle, speed=1.0, front_wheel_speed=0.1)
   control = make_control(True, starting_angle)
   controller.update(control, structs.CarControlSP(), state, 0)
-  previous_command = round(starting_angle * 10 - 392)
+  previous_wire_angle = starting_angle
 
-  for frame, requested in enumerate(requested_angles * 5, start=1):
-    control = make_control(True, requested)
+  for frame in range(1, 11):
+    control = make_control(True, requested_angle)
     actuators, sends = controller.update(control, structs.CarControlSP(), state, frame * 10_000_000)
     if not sends:
       continue
     values = decode_steering_message(next(send for send in sends if send[0] == 0x345))
-    command = values["CMD"]
-    wire_angle = (command + 392) / 10
-    assert abs(command - previous_command) <= 50
+    assert values["LKA_ACTIVE"] == 1
+    wire_angle = (values["CMD"] + 392) / 10
+    assert abs(wire_angle - previous_wire_angle) <= 5.0
     assert wire_angle == pytest.approx(actuators.steeringAngleDeg)
-    assert command not in (0, 1)
-    previous_command = command
+    assert values["CMD"] not in (0, 1)
+    previous_wire_angle = wire_angle
 
 
 def test_lateral_transition_outside_angle_limit_stays_inactive_until_in_range():

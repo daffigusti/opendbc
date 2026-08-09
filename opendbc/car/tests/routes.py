@@ -1,5 +1,6 @@
 from typing import NamedTuple
 
+from opendbc.car.chery.values import CAR as CHERY
 from opendbc.car.chrysler.values import CAR as CHRYSLER
 from opendbc.car.gm.values import CAR as GM
 from opendbc.car.ford.values import CAR as FORD
@@ -54,6 +55,9 @@ non_tested_cars = [
   GM.CHEVROLET_TRAILBLAZER_NON_ACC_2ND_GEN,
   GM.CHEVROLET_MALIBU_NON_ACC_9TH_GEN,
   GM.CADILLAC_XT5_NON_ACC_1ST_GEN,
+
+  # Validated privately; add a sanitized public route before release.
+  CHERY.CHERY_OMODA_E5,
 ]
 
 

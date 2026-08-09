@@ -3,7 +3,9 @@
 Chery Omoda E5 support includes lateral control. Alpha longitudinal control is
 default OFF; it requires explicit enable and closed-course validation.
 
-## Verified CAN layout
+## Safety-hook CAN layout
+
+Table lists safety-critical subset used by safety hooks, not complete vehicle CAN layout.
 
 | Direction | Signal/frame | Bus | DLC | Frequency |
 | --- | --- | ---: | ---: | ---: |
@@ -32,8 +34,8 @@ passed through and host ACC transmission is inhibited.
 ## Focused validation
 
 ```sh
-pytest opendbc_repo/opendbc/car/chery/tests -v
-pytest opendbc_repo/opendbc/safety/tests/test_chery.py -v
+pytest opendbc/car/chery/tests -v
+pytest opendbc/safety/tests/test_chery.py -v
 ```
 
 This support is not a production-ready, ISO, or road-ready claim.

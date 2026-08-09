@@ -4,7 +4,7 @@ from enum import IntFlag
 from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms
 from opendbc.car.lateral import AngleSteeringLimitsVM
 from opendbc.car.structs import CarParams
-from opendbc.car.docs_definitions import CarDocs, CarHarness, CarParts
+from opendbc.car.docs_definitions import CarDocs, CarHarness, CarParts, SupportType
 from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries
 
 
@@ -33,6 +33,8 @@ class CherySafetyFlags(IntFlag):
 @dataclass
 class CheryCarDocs(CarDocs):
   package: str = "All"
+  support_type: SupportType = SupportType.REVIEW
+  support_link: str | None = "#under-review"
   car_parts: CarParts = field(default_factory=CarParts.common([CarHarness.custom]))
 
 
@@ -43,7 +45,7 @@ class CheryPlatformConfig(PlatformConfig):
 
 class CAR(Platforms):
   CHERY_OMODA_E5 = CheryPlatformConfig(
-    [CheryCarDocs("Chery Omoda E5", video="https://youtu.be/9kGGh8sLcHc")],
+    [CheryCarDocs("Chery Omoda E5 2024", video="https://youtu.be/9kGGh8sLcHc")],
     CarSpecs(mass=1785., wheelbase=2.63, steerRatio=17.5)
   )
 

@@ -21,8 +21,12 @@ Future evidence required:
   measurements.
 - Stock AEB interaction requires hardware validation.
 - Stage C3, Panda bench, and controlled-drive validation before expanding support.
-- Private evidence verified ACC cancel. `RES_PLUS` TX remains unverified;
-  `0x360` remains denied/forwarded.
+- Owner-provided CAN capture verified ACC cancel. `RES_PLUS` TX remains
+  unverified; `0x360` remains denied/forwarded.
 - Driver torque override is decode-only. Sign and threshold require owner-labeled
   stationary correlation before enforcement; `steeringPressed` remains false until
   verified. Acceptance of override enforcement is intentionally deferred.
+
+Publication rule: publish owner-provided evidence only after owner approval, and
+strip route IDs, URLs, tokens, VINs, locations, timestamps, and raw identifying
+captures before publication.

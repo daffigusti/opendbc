@@ -16,11 +16,18 @@ default OFF; it requires explicit enable and closed-course validation.
 | TX | steering command `0x345` | 0 | 8 | 50 Hz |
 | TX | ACC command `0x3A2` (alpha-long) | 0 | 8 | 50 Hz |
 
-Active steering commands are capped at +/-150 degrees. Inactive steering
+Active steering commands use a provisional +/-150 degree cap. Inactive steering
 commands support the representable range through +/-370.4 degrees. Stock
 steering is dynamically passed through when measured rack angle is outside
 that representable range. During detected stock AEB, OEM `0x3A2` is dynamically
 passed through and host ACC transmission is inhibited.
+
+## Remaining hardware gates
+
+- Measure physical steering ratio and rack/EPS range.
+- Validate raw ACC command to physical acceleration mapping in a closed course.
+- Validate stock AEB interaction on hardware.
+- Complete staged C3/Panda bench and controlled-drive validation.
 
 ## Focused validation
 

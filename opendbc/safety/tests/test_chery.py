@@ -57,6 +57,11 @@ class TestCherySafety(SafetyTest):
     for address, (bus, _dlc, _frequency) in RX_LAYOUT.items():
       self._rx(self._packet(address, bus))
 
+  def _seed_non_acc(self):
+    for address, (bus, _dlc, _frequency) in RX_LAYOUT.items():
+      if address not in (0x3A2, 0x3A5):
+        self._rx(self._packet(address, bus))
+
   def _packet(self, address, bus, counter=None, **fields):
     """Clone golden route data, mutate decoded raw fields, and repair integrity."""
     data = bytearray(GOLDEN_FRAMES[(address, bus)])
@@ -112,6 +117,7 @@ class TestCherySafety(SafetyTest):
     return self._rx(self._packet(address, RX_LAYOUT[address][0], **fields))
 
   def _engage(self):
+    self._seed_all()
     self._rx_field(0x3A2, state=2)
     self._rx_field(0x3A5, active=1)
     self.assertTrue(self.safety.get_controls_allowed())
@@ -271,21 +277,25 @@ class TestCherySafety(SafetyTest):
   def test_acc_authorization_arrival_orders_and_states(self):
     for first, second in ((0x3A2, 0x3A5), (0x3A5, 0x3A2)):
       self.setUp()
+      self._seed_non_acc()
       self._rx_field(first, state=2) if first == 0x3A2 else self._rx_field(first, active=1)
       self.assertFalse(self.safety.get_controls_allowed())
       self._rx_field(second, state=2) if second == 0x3A2 else self._rx_field(second, active=1)
       self.assertTrue(self.safety.get_controls_allowed())
     for state in (0, 1):
       self.setUp()
+      self._seed_non_acc()
       self._rx_field(0x3A2, state=state)
       self._rx_field(0x3A5, active=1)
       self.assertFalse(self.safety.get_controls_allowed())
     self.setUp()
+    self._seed_non_acc()
     self._rx_field(0x3A2, state=1)
     self.assertFalse(self.safety.get_controls_allowed())
     self._rx_field(0x3A5, active=1)
     self.assertFalse(self.safety.get_controls_allowed())
     self.setUp()
+    self._seed_non_acc()
     self._rx_field(0x3A5, active=1)
     self.assertFalse(self.safety.get_controls_allowed())
     self._rx_field(0x3A2, state=3)
@@ -312,6 +322,7 @@ class TestCherySafety(SafetyTest):
                                    ("acc_gas", 0x3A2, 1), ("aeb", 0x3A5, 1)):
       for speed in (0, 100) if field == "brake" else (100,):
         self.setUp()
+        self._seed_all()
         self._rx_field(0x316, fr=speed, fl=speed)
         self._rx_field(address, **{field: value})
         self._rx_field(0x3A2, state=2, acc_gas=value if field == "acc_gas" else 0)
@@ -388,6 +399,9 @@ class TestCherySafety(SafetyTest):
     self._rx_field(0x316, fr=-1, fl=100)
     self.assertFalse(self.safety.get_controls_allowed())
     self.assertFalse(self.safety.get_controls_allowed_lateral())
+    self._rx_field(0x316, fr=0x316, fl=0x8000)
+    self.assertTrue(self.safety.get_vehicle_moving())
+    self.assertFalse(self.safety.get_controls_allowed())
     for gas, expected in ((10, False), (11, True)):
       self.setUp()
       self._rx_field(0x03E, engine_gas=gas)

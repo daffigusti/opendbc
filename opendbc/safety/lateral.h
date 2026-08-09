@@ -1,5 +1,5 @@
-#include "opendbc/safety/sunnypilot/mads.h"
 #include "opendbc/safety/declarations.h"
+#include "opendbc/safety/sunnypilot/mads.h"
 
 // ISO 11270
 static const float ISO_LATERAL_ACCEL = 3.0;  // m/s^2

@@ -19,5 +19,5 @@ Future evidence required:
 - Capture button behavior for ACC/main and CC_BTN/cancel before adding mappings;
   current RES_PLUS/RES_MINUS edge mappings are the only verified button semantics.
 - Driver torque override is decode-only. Sign and threshold require owner-labeled
-  stationary correlation before enforcement; no guessed threshold is used. Acceptance
-  of override enforcement is intentionally deferred.
+  stationary correlation before enforcement; `steeringPressed` remains false until
+  verified. Acceptance of override enforcement is intentionally deferred.

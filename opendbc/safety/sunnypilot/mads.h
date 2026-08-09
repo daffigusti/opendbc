@@ -125,7 +125,8 @@ inline void m_update_control_state(void) {
 
   // Process control request if conditions allow. Gate the write on system_enabled so that
   // stock safety builds (MADS disabled) never flip the global on.
-  if (allowed && m_mads_state.system_enabled && m_mads_state.controls_requested_lateral && !controls_allowed_lateral) {
+  if (allowed && !safety_rx_checks_invalid && m_mads_state.system_enabled &&
+      m_mads_state.controls_requested_lateral && !controls_allowed_lateral) {
     m_mads_state.controls_requested_lateral = false;
     controls_allowed_lateral = true;
     m_mads_state.current_disengage.active_reason = MADS_DISENGAGE_REASON_NONE;

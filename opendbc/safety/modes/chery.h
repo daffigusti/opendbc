@@ -8,6 +8,17 @@ static bool chery_stock_aeb = false;
 static bool chery_engine_gas = false;
 static bool chery_acc_gas = false;
 static bool chery_inhibited = false;
+static bool chery_sensor_invalid = false;
+static uint8_t chery_rx_seen_mask = 0U;
+
+static bool chery_authorized(void) {
+  return (chery_rx_seen_mask == 0x3FU) && !safety_rx_checks_invalid && !chery_sensor_invalid &&
+         chery_acc_available && chery_acc_active && !chery_inhibited;
+}
+
+static void chery_pcm_cruise_check(void) {
+  pcm_cruise_check(chery_authorized());
+}
 
 static void chery_update_gas(void) {
   gas_pressed = chery_engine_gas || chery_acc_gas;
@@ -21,14 +32,22 @@ static void chery_apply_inhibitors(void) {
 }
 
 static void chery_rx_hook(const CANPacket_t *msg) {
+  const uint8_t seen_bit = (msg->addr == 0x03EU) ? 0U :
+                           (msg->addr == 0x1D3U) ? 1U :
+                           (msg->addr == 0x316U) ? 2U :
+                           (msg->addr == 0x394U) ? 3U :
+                           (msg->addr == 0x3A2U) ? 4U : 5U;
+  chery_rx_seen_mask |= (uint8_t)(1U << seen_bit);
   if (msg->addr == 0x316U) {
     // DBC order is FR (bytes 0-1), FL (bytes 2-3).
     const int front_right = to_signed((msg->data[0] << 8U) | msg->data[1], 16);
-    const int front_left = to_signed((msg->data[2] << 8U) | msg->data[3], 16);
-    if ((front_left < 0) || (front_right < 0)) {
+    const uint16_t front_left = (uint16_t)((msg->data[2] << 8U) | msg->data[3]);
+    if (front_right < 0) {
+      chery_sensor_invalid = true;
       controls_allowed = false;
       mads_exit_controls(MADS_DISENGAGE_REASON_INVALID_RX);
     } else {
+      chery_sensor_invalid = false;
       UPDATE_VEHICLE_SPEED(((front_left + front_right) / 2.0) * 0.00829 / 3.6);
       vehicle_moving = (front_left > 0) || (front_right > 0);
     }
@@ -46,14 +65,14 @@ static void chery_rx_hook(const CANPacket_t *msg) {
     const uint8_t state = msg->data[1] & 0x03U;
     chery_acc_available = (state == 2U) || (state == 3U);
     chery_acc_gas = GET_BIT(msg, 47U);
-    pcm_cruise_check(chery_acc_available && chery_acc_active && !chery_inhibited);
+    chery_pcm_cruise_check();
   } else if (msg->addr == 0x3A5U) {
     chery_acc_active = GET_BIT(msg, 20U);
     chery_stock_aeb = GET_BIT(msg, 46U);
     if (!chery_acc_active) {
       chery_inhibited = false;
     }
-    pcm_cruise_check(chery_acc_available && chery_acc_active && !chery_inhibited);
+    chery_pcm_cruise_check();
   }
   chery_update_gas();
   chery_apply_inhibitors();
@@ -124,6 +143,8 @@ static safety_config chery_init(uint16_t param) {
   chery_engine_gas = false;
   chery_acc_gas = false;
   chery_inhibited = false;
+  chery_sensor_invalid = false;
+  chery_rx_seen_mask = 0U;
   gas_pressed = false;
   brake_pressed = false;
   static RxCheck chery_rx_checks[] = {

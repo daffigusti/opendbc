@@ -78,7 +78,8 @@ class CarState(CarStateBase):
     ret.steeringAngleDeg = cp.vl["STEER_ANGLE_SENSOR"]["STEER_ANGLE"]
     ret.steeringTorque = cp.vl["STEER_SENSOR_2"]["TORQUE_DRIVER"]
     ret.steeringTorqueEps = cp.vl["STEER_ANGLE_SENSOR"]["TORQUE"]
-    ret.steeringPressed = abs(ret.steeringTorque) > 1.0
+    # Driver torque threshold/sign are unverified; see KNOWN_GAPS.md.
+    ret.steeringPressed = False
 
     ret.cruiseState.available = cp_cam.vl["SETTING"]["ACC_AVAILABLE"] in (1, 2)
     ret.cruiseState.enabled = bool(cp_cam.vl["ACC"]["ACC_ACTIVE"] or cp_cam.vl["ACC_CMD"]["STOPPED"])

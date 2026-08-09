@@ -267,6 +267,7 @@ def test_chery_state_update_decodes_route_signals():
   assert state.wheelSpeeds.rr == pytest.approx(12 / 3.6, abs=1e-3)
   assert state.steeringAngleDeg == pytest.approx(-12.3)
   assert state.steeringTorque == pytest.approx(-24)
+  assert state.steeringPressed is False
   assert state.steeringTorqueEps == pytest.approx(-7)
   assert state.brakePressed
   assert state.gasPressed

@@ -74,6 +74,7 @@ static void chery_rx_hook(const CANPacket_t *msg) {
   } else if (msg->addr == 0x3A2U) {
     const uint8_t state = msg->data[1] & 0x03U;
     chery_acc_available = (state == 2U) || (state == 3U);
+    acc_main_on = chery_acc_available;
     chery_acc_gas = GET_BIT(msg, 47U);
     chery_pcm_cruise_check();
   } else if (msg->addr == 0x3A5U) {
@@ -89,8 +90,41 @@ static void chery_rx_hook(const CANPacket_t *msg) {
 }
 
 static bool chery_tx_hook(const CANPacket_t *msg) {
-  SAFETY_UNUSED(msg);
-  return false;
+  static const AngleSteeringLimits CHERY_STEERING_LIMITS = {
+    .max_angle = 37040,
+    .angle_deg_to_can = 100,
+    .frequency = 50U,
+  };
+  static const AngleSteeringParams CHERY_STEERING_PARAMS = {
+    .slip_factor = -0.000637749883,
+    .steer_ratio = 17.5,
+    .wheelbase = 2.63,
+  };
+
+  if (msg->addr != 0x345U || GET_LEN(msg) != 8U || msg->bus != 0U) {
+    return false;
+  }
+
+  // CMD is signed 13-bit Motorola: bits 6..18, with 0.1 degree resolution
+  // and a -392 raw offset.
+  const uint16_t raw = (uint16_t)(((msg->data[0] & 0x7FU) << 6U) | (msg->data[1] >> 2U));
+  const int desired_angle = (to_signed(raw, 13) + 392) * 10;
+  const bool steer_control_enabled = GET_BIT(msg, 9U);
+
+  // Active commands have an explicit +/-150 degree cap before VM checks.
+  if (steer_control_enabled && ((desired_angle > 15000) || (desired_angle < -15000))) {
+    return false;
+  }
+
+  // Do not permit an inactive command to wrap or clamp across the signed-13
+  // representable physical range.
+  if (!steer_control_enabled && ((desired_angle > CHERY_STEERING_LIMITS.max_angle) ||
+                                 (desired_angle < -CHERY_STEERING_LIMITS.max_angle))) {
+    return false;
+  }
+
+  return !steer_angle_cmd_checks_vm(desired_angle, steer_control_enabled,
+                                    CHERY_STEERING_LIMITS, CHERY_STEERING_PARAMS);
 }
 
 static bool chery_fwd_hook(int bus_num, int addr) {
@@ -148,6 +182,7 @@ static bool chery_get_quality_flag_valid(const CANPacket_t *msg) {
 static safety_config chery_init(uint16_t param) {
   SAFETY_UNUSED(param);
   chery_acc_available = false;
+  acc_main_on = false;
   chery_acc_active = false;
   chery_stock_aeb = false;
   chery_engine_gas = false;
@@ -169,13 +204,13 @@ static safety_config chery_init(uint16_t param) {
     {.msg = {{0x3A2, 2, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
     {.msg = {{0x3A5, 2, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
   };
-  static const CanMsg chery_tx_msgs[] = {{0, 0, 0, false, false}};
+  static const CanMsg chery_tx_msgs[] = {{0x345, 0, 8, .check_relay = true}};
   safety_config config = {
     .rx_checks = chery_rx_checks,
     .rx_checks_len = sizeof(chery_rx_checks) / sizeof(chery_rx_checks[0]),
     .tx_msgs = chery_tx_msgs,
-    .tx_msgs_len = 0,
-    .disable_forwarding = true,
+    .tx_msgs_len = sizeof(chery_tx_msgs) / sizeof(chery_tx_msgs[0]),
+    .disable_forwarding = false,
   };
   return config;
 }

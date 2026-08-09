@@ -21,3 +21,5 @@ Future evidence required:
 - Driver torque override is decode-only. Sign and threshold require owner-labeled
   stationary correlation before enforcement; `steeringPressed` remains false until
   verified. Acceptance of override enforcement is intentionally deferred.
+- Resume/button TX remains deferred: no runtime caller or capture evidence authorizes
+  transmitting 0x360. Physical bus 0 0x360 is forwarded to bus 2.

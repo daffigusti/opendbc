@@ -37,7 +37,7 @@ def _checksum(address, data):
 
 
 class TestCherySafety(SafetyTest):
-  TX_MSGS = []
+  TX_MSGS = [[0x345, 0]]
   FWD_BUS_LOOKUP = {}
   FWD_BLACKLISTED_ADDRS = {}
 
@@ -280,8 +280,14 @@ class TestCherySafety(SafetyTest):
       self.assertFalse(self._rx(repeated_msg), hex(address))
 
   def test_tx_denied_and_forwarding_disabled(self):
-    self.assertFalse(self.safety.safety_tx_hook(make_msg(0, 0x345)))
-    self.assertEqual(self.safety.safety_fwd_hook(0, 0x123), -1)
+    self.assertFalse(self.safety.safety_tx_hook(make_msg(0, 0x360)))
+    self.assertEqual(self.safety.safety_fwd_hook(0, 0x345), 2)
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x345), -1)
+    self.assertEqual(self.safety.safety_fwd_hook(0, 0x360), 2)
+    self.assertEqual(self.safety.safety_fwd_hook(0, 0x3A2), 2)
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), 0)
+    self.assertEqual(self.safety.safety_fwd_hook(1, 0x345), -1)
+    self.assertEqual(self.safety.safety_fwd_hook(3, 0x345), -1)
 
   def test_acc_authorization_arrival_orders_and_states(self):
     for first, second in ((0x3A2, 0x3A5), (0x3A5, 0x3A2)):

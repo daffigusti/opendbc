@@ -28,6 +28,19 @@ def test_inactive_steering_tracks_stock_frame():
   assert dat[-1] == calculate_crc(dat[:-1])
 
 
+@pytest.mark.parametrize("angle", [39.2, 39.3, 150.1, 370.0, -370.0])
+def test_inactive_steering_preserves_exact_command(angle):
+  packer = CANPacker("chery_canfd")
+  stock = {name: 0 for name in (
+    "CMD", "NEW_SIGNAL_3", "LKA_ACTIVE", "SET_X0", "NEW_SIGNAL_5", "NEW_SIGNAL_6",
+    "NEW_SIGNAL_7", "NEW_SIGNAL_1", "CHECKSUM",
+  )}
+  address, dat, bus = create_steering_control(packer, 0, angle, False, stock)
+  parser = CANParser("chery_canfd", [("LKAS_CAM_CMD_345", 0)], 0)
+  parser.update([[0, [(address, dat, bus)]]])
+  assert parser.vl["LKAS_CAM_CMD_345"]["CMD"] == int(angle * 10 - 392)
+
+
 @pytest.mark.parametrize("apply_steer, fixture", [(-7.1, 0), (-7.0, 1)])
 def test_steering_captured_stock_fields_and_checksum(apply_steer, fixture):
   packer = CANPacker("chery_canfd")

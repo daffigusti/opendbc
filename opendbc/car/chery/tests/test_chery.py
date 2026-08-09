@@ -15,6 +15,8 @@ from opendbc.car.chery.values import CAR, CherySafetyFlags, DBC
 from opendbc.car.fingerprints import _FINGERPRINTS
 from opendbc.car.structs import CarParams
 from opendbc.car.values import PLATFORMS
+from opendbc.car.vehicle_model import calc_slip_factor
+from opendbc.car.vehicle_model import VehicleModel
 
 
 def fingerprint():
@@ -29,6 +31,7 @@ def test_interface_lateral_and_alpha_long():
   assert lateral.alphaLongitudinalAvailable
   assert not lateral.openpilotLongitudinalControl
   assert lateral.safetyConfigs[-1].safetyParam == 0
+  assert calc_slip_factor(VehicleModel(lateral)) == pytest.approx(-0.0006377498827871491)
 
   long = CarInterface.get_params(CAR.CHERY_OMODA_E5, fingerprint(), [], alpha_long=True, is_release=False, docs=False)
   assert long.openpilotLongitudinalControl

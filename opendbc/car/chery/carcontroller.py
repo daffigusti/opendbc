@@ -23,17 +23,21 @@ class CarController(CarControllerBase):
     if self.frame % CarControllerParams.STEER_STEP == 0:
       if self.apply_angle_last is None:
         self.apply_angle_last = CS.out.steeringAngleDeg
-      apply_angle = apply_steer_angle_limits_vm(
-        actuators.steeringAngleDeg,
-        self.apply_angle_last,
-        CS.out.vEgoRaw,
-        CS.out.steeringAngleDeg,
-        lat_active,
-        CarControllerParams,
-        self.VM,
-      )
+      if lat_active:
+        apply_angle = apply_steer_angle_limits_vm(
+          actuators.steeringAngleDeg,
+          self.apply_angle_last,
+          CS.out.vEgoRaw,
+          CS.out.steeringAngleDeg,
+          True,
+          CarControllerParams,
+          self.VM,
+        )
+      else:
+        apply_angle = CS.out.steeringAngleDeg
       self.apply_angle_last = apply_angle
-      can_sends.append(create_steering_control(self.packer, self.CAN.main, self.apply_angle_last, lat_active, CS.lkas_cmd))
+      if abs(apply_angle) <= 370.4:
+        can_sends.append(create_steering_control(self.packer, self.CAN.main, apply_angle, lat_active, CS.lkas_cmd))
 
     new_actuators = actuators.as_builder()
     new_actuators.steeringAngleDeg = self.apply_angle_last if self.apply_angle_last is not None else CS.out.steeringAngleDeg

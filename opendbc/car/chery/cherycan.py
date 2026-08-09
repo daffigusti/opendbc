@@ -5,6 +5,12 @@ STEER_ANGLE_SCALE = 10
 CRC_POLY = 0x1D
 CRC_INIT = 0xFF
 CRC_XOR = 0xFF
+ACCEL_MIN = -3.5
+ACCEL_ZERO = 0.0
+ACCEL_MAX = 2.0
+CMD_MIN = -511
+CMD_ZERO = -24
+CMD_MAX = 511
 
 
 def calculate_crc(data: bytes) -> int:
@@ -78,20 +84,24 @@ def create_button_control(packer, bus: int, frame: int, stock_values: dict, canc
 def create_acc_control(packer, bus: int, stock_values: dict, frame: int, long_active: bool,
                        gas: float, full_stop: bool, resume: bool):
   if long_active:
-    gas = max(-3.5, min(gas, 2.0))
-    throttle = int(round(-24 + (gas + 3.5) * 487 / 3.5 if gas <= 0 else -24 + gas * 535 / 2))
+    gas = max(ACCEL_MIN, min(gas, ACCEL_MAX))
+    if gas <= ACCEL_ZERO:
+      throttle = CMD_MIN + (gas - ACCEL_MIN) * (CMD_ZERO - CMD_MIN) / (ACCEL_ZERO - ACCEL_MIN)
+    else:
+      throttle = CMD_ZERO + gas * (CMD_MAX - CMD_ZERO) / ACCEL_MAX
+    throttle = int(round(throttle))
   else:
-    throttle = -24
+    throttle = CMD_ZERO
   values = {name: stock_values[name] for name in (
     "ACC_STATE_2", "NEW_SIGNAL_12", "NEW_SIGNAL_9", "NEW_SIGNAL_2", "STOPPING",
     "NEW_SIGNAL_13", "NEW_SIGNAL_8", "NEW_SIGNAL_5", "NEW_SIGNAL_6", "NEW_SIGNAL_10",
     "NEW_SIGNAL_3", "NEW_SIGNAL_4", "AEB_REQ_STOP",
   )}
   values.update({
-    "CMD": 400 if full_stop else throttle,
+    "CMD": throttle,
     "ACCEL_ON": 1 if throttle >= 0 else 0,
-    "ACC_STATE": 2 if full_stop else 3 if long_active else stock_values["ACC_STATE"],
-    "STOPPED": 1 if full_stop else 0 if long_active else stock_values["STOPPED"],
+    "ACC_STATE": 2 if long_active and full_stop else 3 if long_active else stock_values["ACC_STATE"],
+    "STOPPED": 1 if long_active and full_stop else 0 if long_active else stock_values["STOPPED"],
     "STOPPING": stock_values["STOPPING"],
     "GAS_PRESSED": 1 if resume else 0,
     "AEB_REQ_STOP": 0,

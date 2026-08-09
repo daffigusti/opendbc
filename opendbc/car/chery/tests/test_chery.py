@@ -115,9 +115,10 @@ def test_chery_signal_ranges_declared_in_dbc():
   } <= dbc_lines
 
 
-def make_control(lat_active: bool, angle: float):
+def make_control(lat_active: bool, angle: float, long_active: bool = False):
   control = structs.CarControl()
   control.latActive = lat_active
+  control.longActive = long_active
   control.actuators.steeringAngleDeg = angle
   return control.as_reader()
 
@@ -157,6 +158,27 @@ def test_lateral_controller_sends_50_hz():
     _actuators, sends = controller.update(control, structs.CarControlSP(), state, frame * 10_000_000)
     steer_messages += sum(addr == 0x345 for addr, _dat, _bus in sends)
   assert steer_messages == 50
+
+
+def test_longitudinal_alpha_gate_and_50hz_output_shape():
+  stock = {name: 0 for name in (
+    "ACC_STATE", "STOPPED", "ACC_STATE_2", "NEW_SIGNAL_12", "NEW_SIGNAL_9",
+    "NEW_SIGNAL_2", "STOPPING", "NEW_SIGNAL_13", "NEW_SIGNAL_8", "NEW_SIGNAL_5",
+    "NEW_SIGNAL_6", "NEW_SIGNAL_10", "NEW_SIGNAL_3", "NEW_SIGNAL_4", "AEB_REQ_STOP",
+  )}
+  for alpha_long, expected_count in ((False, 0), (True, 50)):
+    controller = make_controller()
+    controller.CP.openpilotLongitudinalControl = alpha_long
+    control = make_control(False, 0.0, long_active=True)
+    state = make_state(0.0)
+    state.acc_cmd = stock
+    sends = []
+    for frame in range(100):
+      _actuators, frame_sends = controller.update(control, structs.CarControlSP(), state, frame * 10_000_000)
+      sends.extend(frame_sends)
+    acc_sends = [send for send in sends if send[0] == 0x3A2]
+    assert len(acc_sends) == expected_count
+    assert all(bus == 0 and len(data) == 8 for _addr, data, bus in acc_sends)
 
 
 def test_lateral_inactive_tracks_measured_angle():

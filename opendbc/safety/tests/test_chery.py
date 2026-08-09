@@ -2,6 +2,8 @@ import math
 
 from opendbc.safety.tests.common import CANPackerSafety, MAX_WRONG_COUNTERS, SafetyTest, make_msg
 from opendbc.safety.tests.libsafety import libsafety_py
+from opendbc.can import CANPacker
+from opendbc.car.chery.cherycan import calculate_crc
 from opendbc.car.chery.values import CAR, CarControllerParams
 from opendbc.car.chery.interface import CarInterface
 from opendbc.car.lateral import get_max_angle_delta_vm, get_max_angle_vm
@@ -74,6 +76,17 @@ class TestCherySafety(SafetyTest):
   def _angle_meas_msg(self, angle, bus=0, length=8):
     return self._packet(0x1D3, bus, angle_raw=round((angle + 780) * 10)) if length == 8 else \
       libsafety_py.make_CANPacket(0x1D3, bus, GOLDEN_FRAMES[(0x1D3, 0)][:length])
+
+  def _acc_cmd_msg(self, command, aeb_req_stop=0):
+    packer = CANPacker("chery_canfd")
+    address, data, bus = packer.make_can_msg("ACC_CMD", 0, {"CMD": command, "AEB_REQ_STOP": aeb_req_stop})
+    data = bytearray(data)
+    data[-1] = calculate_crc(bytes(data[:-1]))
+    return libsafety_py.make_CANPacket(address, bus, data)
+
+  def _enable_longitudinal(self):
+    self.assertEqual(self.safety.set_safety_hooks(SAFETY_CHERY, 1), 0)
+    self.safety.init_tests()
 
   def _reset_angle_samples(self, angle):
     for _ in range(6):
@@ -326,6 +339,37 @@ class TestCherySafety(SafetyTest):
     self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), 0)
     self.assertEqual(self.safety.safety_fwd_hook(1, 0x345), -1)
     self.assertEqual(self.safety.safety_fwd_hook(3, 0x345), -1)
+
+  def test_longitudinal_base_flag_and_raw_command_contract(self):
+    self.assertFalse(self._tx(self._acc_cmd_msg(-24)))
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), 0)
+    self._enable_longitudinal()
+    self.safety.set_controls_allowed(True)
+    for command in (-511, 0, 511):
+      self.assertTrue(self._tx(self._acc_cmd_msg(command)), command)
+    self.safety.set_controls_allowed(False)
+    self.assertTrue(self._tx(self._acc_cmd_msg(-24)))
+    self.assertFalse(self._tx(self._acc_cmd_msg(-511)))
+    self.assertFalse(self._tx(self._acc_cmd_msg(511)))
+    self.assertFalse(self._tx(self._acc_cmd_msg(-512)))
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), -1)
+
+  def test_longitudinal_aeb_and_rx_inhibitors_allow_only_inactive_command(self):
+    self._enable_longitudinal()
+    for field, address in (("brake", 0x03E), ("engine_gas", 0x03E),
+                           ("acc_gas", 0x3A2), ("aeb", 0x3A5)):
+      self.setUp()
+      self._enable_longitudinal()
+      value = 11 if field == "engine_gas" else 1
+      self._rx_field(address, **{field: value})
+      self.safety.set_controls_allowed(True)
+      self.assertFalse(self._tx(self._acc_cmd_msg(511)), field)
+      self.assertTrue(self._tx(self._acc_cmd_msg(-24)), field)
+    self.setUp()
+    self._enable_longitudinal()
+    self.safety.set_controls_allowed(True)
+    for aeb_req_stop in range(1, 16):
+      self.assertFalse(self._tx(self._acc_cmd_msg(-24, aeb_req_stop)))
 
   def test_angle_command_signed13_boundaries_and_message_shape(self):
     self.safety.set_controls_allowed(True)

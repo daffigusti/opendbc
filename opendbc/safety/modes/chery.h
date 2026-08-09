@@ -117,11 +117,13 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
     // ACC_CMD CMD is signed 10-bit Motorola: bits 6..15.
     const uint16_t cmd_raw = (uint16_t)(((msg->data[0] & 0x7FU) << 3U) | (msg->data[1] >> 5U));
     const int command = to_signed(cmd_raw, 10);
-    const uint8_t aeb_req_stop = msg->data[6] & 0x0FU;
+    const uint8_t aeb_req_stop = (msg->data[6] >> 4U) & 0x0FU;
     if (aeb_req_stop != 0U || command < -511 || command > 511) {
       return false;
     }
-    if (!controls_allowed && command != -24) {
+    // Inhibited and inactive states may only transmit stock's inactive command.
+    // Check raw RX-derived inhibitors directly: test setters can override controls_allowed.
+    if ((!controls_allowed || brake_pressed || gas_pressed || chery_stock_aeb) && command != -24) {
       return false;
     }
     return true;

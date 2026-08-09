@@ -108,6 +108,43 @@ def test_acc_counter_and_checksum():
   assert dat[-1] == calculate_crc(dat[:-1])
 
 
+@pytest.mark.parametrize("gas, command", [(-3.5, -511), (0.0, -24), (2.0, 511), (-10.0, -511), (10.0, 511)])
+def test_acc_command_maps_clamped_piecewise_accel(gas, command):
+  packer = CANPacker("chery_canfd")
+  stock = {name: 0 for name in (
+    "ACC_STATE", "STOPPED", "ACC_STATE_2", "NEW_SIGNAL_12", "NEW_SIGNAL_9",
+    "NEW_SIGNAL_2", "STOPPING", "NEW_SIGNAL_13", "NEW_SIGNAL_8", "NEW_SIGNAL_5",
+    "NEW_SIGNAL_6", "NEW_SIGNAL_10", "NEW_SIGNAL_3", "NEW_SIGNAL_4", "AEB_REQ_STOP",
+  )}
+  address, dat, bus = create_acc_control(packer, 0, stock, 0, True, gas, False, False)
+  parser = CANParser("chery_canfd", [("ACC_CMD", 0)], 0)
+  parser.update([[0, [(address, dat, bus)]]])
+  assert parser.vl["ACC_CMD"]["CMD"] == command
+
+
+@pytest.mark.parametrize("full_stop", [False, True])
+def test_acc_full_stop_never_overrides_command_and_inactive_preserves_stock_state(full_stop):
+  packer = CANPacker("chery_canfd")
+  stock = {name: 0 for name in (
+    "ACC_STATE", "STOPPED", "ACC_STATE_2", "NEW_SIGNAL_12", "NEW_SIGNAL_9",
+    "NEW_SIGNAL_2", "STOPPING", "NEW_SIGNAL_13", "NEW_SIGNAL_8", "NEW_SIGNAL_5",
+    "NEW_SIGNAL_6", "NEW_SIGNAL_10", "NEW_SIGNAL_3", "NEW_SIGNAL_4", "AEB_REQ_STOP",
+  )}
+  stock.update({"ACC_STATE": 1, "STOPPED": 1})
+  parser = CANParser("chery_canfd", [("ACC_CMD", 0)], 0)
+  for long_active in (False, True):
+    address, dat, bus = create_acc_control(packer, 0, stock, 0, long_active, 2.0, full_stop, False)
+    parser.update([[0, [(address, dat, bus)]]])
+    values = parser.vl["ACC_CMD"]
+    assert values["CMD"] == (-24 if not long_active else 511)
+    if long_active:
+      assert values["ACC_STATE"] == (2 if full_stop else 3)
+      assert values["STOPPED"] == int(full_stop)
+    else:
+      assert values["ACC_STATE"] == 1
+      assert values["STOPPED"] == 1
+
+
 @pytest.mark.parametrize("fixture, frame", [(0, 15), (1, 16)])
 def test_acc_captured_frames(fixture, frame):
   packer = CANPacker("chery_canfd")

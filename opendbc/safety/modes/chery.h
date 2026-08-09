@@ -17,7 +17,14 @@ static bool chery_authorized(void) {
 }
 
 static void chery_pcm_cruise_check(void) {
-  pcm_cruise_check(chery_authorized());
+  const bool physical_cruise_engaged = chery_acc_available && chery_acc_active;
+  if (!physical_cruise_engaged) {
+    // Physical disengagement must be observed even during an RX fault.
+    pcm_cruise_check(false);
+  } else if (chery_authorized()) {
+    // Preserve physical ACC edge while health is invalid.
+    pcm_cruise_check(true);
+  }
 }
 
 static void chery_update_gas(void) {
@@ -41,8 +48,8 @@ static void chery_rx_hook(const CANPacket_t *msg) {
   if (msg->addr == 0x316U) {
     // DBC order is FR (bytes 0-1), FL (bytes 2-3).
     const int front_right = to_signed((msg->data[0] << 8U) | msg->data[1], 16);
-    const uint16_t front_left = (uint16_t)((msg->data[2] << 8U) | msg->data[3]);
-    if (front_right < 0) {
+    const int front_left = to_signed((msg->data[2] << 8U) | msg->data[3], 16);
+    if ((front_right < 0) || (front_left < 0)) {
       chery_sensor_invalid = true;
       controls_allowed = false;
       mads_exit_controls(MADS_DISENGAGE_REASON_INVALID_RX);
@@ -145,6 +152,8 @@ static safety_config chery_init(uint16_t param) {
   chery_inhibited = false;
   chery_sensor_invalid = false;
   chery_rx_seen_mask = 0U;
+  // Require initial valid data and an explicit safety tick before authorizing ACC/MADS.
+  safety_rx_checks_invalid = true;
   gas_pressed = false;
   brake_pressed = false;
   static RxCheck chery_rx_checks[] = {

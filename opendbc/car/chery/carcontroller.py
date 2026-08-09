@@ -32,7 +32,7 @@ class CarController(CarControllerBase):
         CarControllerParams,
         self.VM,
       )
-      self.apply_angle_last = CS.out.steeringAngleDeg if not lat_active else apply_angle
+      self.apply_angle_last = apply_angle
       can_sends.append(create_steering_control(self.packer, self.CAN.main, self.apply_angle_last, lat_active, CS.lkas_cmd))
 
     new_actuators = actuators.as_builder()

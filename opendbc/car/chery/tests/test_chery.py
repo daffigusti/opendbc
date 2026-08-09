@@ -164,8 +164,8 @@ def test_lateral_first_frame_outside_angle_limit_stays_inactive():
   steering_message = next(send for send in sends if send[0] == 0x345)
   values = decode_steering_message(steering_message)
   assert values["LKA_ACTIVE"] == 0
-  assert values["CMD"] == int(measured_angle * 10 - 392)
-  assert actuators.steeringAngleDeg == measured_angle
+  assert values["CMD"] == int(150.0 * 10 - 392)
+  assert actuators.steeringAngleDeg == 150.0
 
 
 def test_lateral_transition_outside_angle_limit_stays_inactive_until_in_range():
@@ -175,14 +175,29 @@ def test_lateral_transition_outside_angle_limit_stays_inactive_until_in_range():
   actuators, sends = controller.update(control, structs.CarControlSP(), make_state(-151.0), 0)
   values = decode_steering_message(next(send for send in sends if send[0] == 0x345))
   assert values["LKA_ACTIVE"] == 0
-  assert values["CMD"] == int(-151.0 * 10 - 392)
-  assert actuators.steeringAngleDeg == -151.0
+  assert values["CMD"] == int(-150.0 * 10 - 392)
+  assert actuators.steeringAngleDeg == -150.0
 
   controller.update(control, structs.CarControlSP(), make_state(0.0), 10_000_000)
   actuators, sends = controller.update(control, structs.CarControlSP(), make_state(0.0), 20_000_000)
   values = decode_steering_message(next(send for send in sends if send[0] == 0x345))
   assert values["LKA_ACTIVE"] == 1
   assert actuators.steeringAngleDeg != 0.0
+
+
+@pytest.mark.parametrize("measured_angle, expected_angle", [(500.0, 150.0), (-500.0, -150.0)])
+def test_lateral_inactive_extreme_angle_is_clamped_before_encoding(measured_angle, expected_angle):
+  controller = make_controller()
+  actuators, sends = controller.update(
+    make_control(False, 80.0), structs.CarControlSP(), make_state(measured_angle), 0,
+  )
+
+  values = decode_steering_message(next(send for send in sends if send[0] == 0x345))
+  assert values["LKA_ACTIVE"] == 0
+  assert values["CMD"] == int(expected_angle * 10 - 392)
+  assert values["CMD"] * expected_angle >= 0
+  assert abs(actuators.steeringAngleDeg) <= 150.0
+  assert actuators.steeringAngleDeg == expected_angle
 
 
 def test_lateral_hard_cap_is_150_degrees():

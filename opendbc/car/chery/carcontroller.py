@@ -18,12 +18,12 @@ class CarController(CarControllerBase):
   def update(self, CC, CC_SP, CS, now_nanos):
     can_sends = []
     actuators = CC.actuators
-    lat_active = CC.latActive
+    lat_active = CC.latActive and abs(CS.out.steeringAngleDeg) <= CarControllerParams.ANGLE_LIMITS.STEER_ANGLE_MAX
 
     if self.frame % CarControllerParams.STEER_STEP == 0:
       if self.apply_angle_last is None:
         self.apply_angle_last = CS.out.steeringAngleDeg
-      self.apply_angle_last = apply_steer_angle_limits_vm(
+      apply_angle = apply_steer_angle_limits_vm(
         actuators.steeringAngleDeg,
         self.apply_angle_last,
         CS.out.vEgoRaw,
@@ -32,6 +32,7 @@ class CarController(CarControllerBase):
         CarControllerParams,
         self.VM,
       )
+      self.apply_angle_last = CS.out.steeringAngleDeg if not lat_active else apply_angle
       can_sends.append(create_steering_control(self.packer, self.CAN.main, self.apply_angle_last, lat_active, CS.lkas_cmd))
 
     new_actuators = actuators.as_builder()

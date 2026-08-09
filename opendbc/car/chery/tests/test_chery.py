@@ -150,6 +150,41 @@ def test_lateral_inactive_tracks_measured_angle():
   assert actuators.steeringAngleDeg == measured_angle
 
 
+def decode_steering_message(message):
+  parser = CANParser("chery_canfd", [("LKAS_CAM_CMD_345", 0)], 0)
+  parser.update([[0, [message]]])
+  return parser.vl["LKAS_CAM_CMD_345"]
+
+
+def test_lateral_first_frame_outside_angle_limit_stays_inactive():
+  controller = make_controller()
+  measured_angle = 151.0
+  actuators, sends = controller.update(make_control(True, 80.0), structs.CarControlSP(), make_state(measured_angle), 0)
+
+  steering_message = next(send for send in sends if send[0] == 0x345)
+  values = decode_steering_message(steering_message)
+  assert values["LKA_ACTIVE"] == 0
+  assert values["CMD"] == int(measured_angle * 10 - 392)
+  assert actuators.steeringAngleDeg == measured_angle
+
+
+def test_lateral_transition_outside_angle_limit_stays_inactive_until_in_range():
+  controller = make_controller()
+  control = make_control(True, 80.0)
+
+  actuators, sends = controller.update(control, structs.CarControlSP(), make_state(-151.0), 0)
+  values = decode_steering_message(next(send for send in sends if send[0] == 0x345))
+  assert values["LKA_ACTIVE"] == 0
+  assert values["CMD"] == int(-151.0 * 10 - 392)
+  assert actuators.steeringAngleDeg == -151.0
+
+  controller.update(control, structs.CarControlSP(), make_state(0.0), 10_000_000)
+  actuators, sends = controller.update(control, structs.CarControlSP(), make_state(0.0), 20_000_000)
+  values = decode_steering_message(next(send for send in sends if send[0] == 0x345))
+  assert values["LKA_ACTIVE"] == 1
+  assert actuators.steeringAngleDeg != 0.0
+
+
 def test_lateral_hard_cap_is_150_degrees():
   controller = make_controller()
   controller.apply_angle_last = 149.0

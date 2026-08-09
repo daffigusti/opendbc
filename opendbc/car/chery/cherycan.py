@@ -77,7 +77,11 @@ def create_button_control(packer, bus: int, frame: int, stock_values: dict, canc
 
 def create_acc_control(packer, bus: int, stock_values: dict, frame: int, long_active: bool,
                        gas: float, full_stop: bool, resume: bool):
-  throttle = gas if long_active else -24
+  if long_active:
+    gas = max(-3.5, min(gas, 2.0))
+    throttle = int(round(-24 + (gas + 3.5) * 487 / 3.5 if gas <= 0 else -24 + gas * 535 / 2))
+  else:
+    throttle = -24
   values = {name: stock_values[name] for name in (
     "ACC_STATE_2", "NEW_SIGNAL_12", "NEW_SIGNAL_9", "NEW_SIGNAL_2", "STOPPING",
     "NEW_SIGNAL_13", "NEW_SIGNAL_8", "NEW_SIGNAL_5", "NEW_SIGNAL_6", "NEW_SIGNAL_10",

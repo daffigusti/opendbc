@@ -1,9 +1,11 @@
 from opendbc.can import CANPacker
 from opendbc.car import Bus
-from opendbc.car.chery.cherycan import CanBus, create_steering_control, limit_active_steering_angle, quantize_steering_angle
+from opendbc.car.chery.cherycan import (CanBus, create_acc_control, create_steering_control,
+                                        limit_active_steering_angle, quantize_steering_angle)
 from opendbc.car.chery.values import CarControllerParams
 from opendbc.car.lateral import apply_steer_angle_limits_vm
 from opendbc.car.interfaces import CarControllerBase
+from opendbc.car import structs
 from opendbc.car.vehicle_model import VehicleModel
 
 
@@ -51,6 +53,14 @@ class CarController(CarControllerBase):
         self.angle_command_skipped = False
       else:
         self.angle_command_skipped = True
+
+    if self.CP.openpilotLongitudinalControl and self.frame % CarControllerParams.ACC_CONTROL_STEP == 0:
+      long_state = structs.CarControl.Actuators.LongControlState
+      full_stop = actuators.longControlState == long_state.stopping
+      can_sends.append(create_acc_control(
+        self.packer, self.CAN.main, CS.acc_cmd, self.frame, CC.longActive,
+        actuators.accel, full_stop, CC.cruiseControl.resume,
+      ))
 
     new_actuators = actuators.as_builder()
     new_actuators.steeringAngleDeg = self.apply_angle_last if self.apply_angle_last is not None else CS.out.steeringAngleDeg

@@ -9,6 +9,8 @@ static bool chery_engine_gas = false;
 static bool chery_acc_gas = false;
 static bool chery_inhibited = false;
 static bool chery_sensor_invalid = false;
+static bool chery_longitudinal = false;
+static const uint16_t CHERY_PARAM_LONG_CONTROL = 1U;
 static int chery_current_angle_deg100 = 0;
 static uint8_t chery_rx_seen_mask = 0U;
 static bool chery_reauth_required = false;
@@ -107,6 +109,24 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
     .wheelbase = 2.63,
   };
 
+  if (msg->addr == 0x3A2U) {
+    if (!chery_longitudinal || msg->bus != 0U || GET_LEN(msg) != 8U) {
+      return false;
+    }
+
+    // ACC_CMD CMD is signed 10-bit Motorola: bits 6..15.
+    const uint16_t cmd_raw = (uint16_t)(((msg->data[0] & 0x7FU) << 3U) | (msg->data[1] >> 5U));
+    const int command = to_signed(cmd_raw, 10);
+    const uint8_t aeb_req_stop = msg->data[6] & 0x0FU;
+    if (aeb_req_stop != 0U || command < -511 || command > 511) {
+      return false;
+    }
+    if (!controls_allowed && command != -24) {
+      return false;
+    }
+    return true;
+  }
+
   if (msg->addr != 0x345U || GET_LEN(msg) != 8U || msg->bus != 0U) {
     return false;
   }
@@ -144,6 +164,9 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
 }
 
 static bool chery_fwd_hook(int bus_num, int addr) {
+  if (bus_num == 2 && addr == 0x3A2U) {
+    return chery_longitudinal ? -1 : 0;
+  }
   // Let stock steering pass through only when the measured rack angle is
   // outside the representable command range. Within range, block stock
   // steering while retaining forwarding for stock buttons and other frames.
@@ -197,7 +220,7 @@ static bool chery_get_quality_flag_valid(const CANPacket_t *msg) {
 }
 
 static safety_config chery_init(uint16_t param) {
-  SAFETY_UNUSED(param);
+  chery_longitudinal = GET_FLAG(param, CHERY_PARAM_LONG_CONTROL);
   chery_acc_available = false;
   acc_main_on = false;
   chery_acc_active = false;
@@ -223,11 +246,14 @@ static safety_config chery_init(uint16_t param) {
     {.msg = {{0x3A5, 2, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
   };
   static const CanMsg chery_tx_msgs[] = {{0x345, 0, 8, .check_relay = true, .disable_static_blocking = true}};
+  static const CanMsg chery_long_tx_msgs[] = {{0x345, 0, 8, .check_relay = true, .disable_static_blocking = true},
+                                              {0x3A2, 0, 8, .check_relay = true}};
   safety_config config = {
     .rx_checks = chery_rx_checks,
     .rx_checks_len = sizeof(chery_rx_checks) / sizeof(chery_rx_checks[0]),
-    .tx_msgs = chery_tx_msgs,
-    .tx_msgs_len = sizeof(chery_tx_msgs) / sizeof(chery_tx_msgs[0]),
+    .tx_msgs = chery_longitudinal ? chery_long_tx_msgs : chery_tx_msgs,
+    .tx_msgs_len = (int)(chery_longitudinal ? sizeof(chery_long_tx_msgs) / sizeof(chery_long_tx_msgs[0]) :
+                                              sizeof(chery_tx_msgs) / sizeof(chery_tx_msgs[0])),
     .disable_forwarding = false,
   };
   return config;

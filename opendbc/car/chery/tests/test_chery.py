@@ -122,13 +122,14 @@ def make_control(lat_active: bool, angle: float):
   return control.as_reader()
 
 
-def make_state(measured_angle: float, speed: float = 1.0):
+def make_state(measured_angle: float, speed: float = 1.0, front_wheel_speed: float | None = None):
   state = structs.CarState()
   state.vEgo = speed
   state.vEgoRaw = speed
   state.steeringAngleDeg = measured_angle
   state.steeringTorque = 0.0
   return SimpleNamespace(
+    front_wheel_speed=speed if front_wheel_speed is None else front_wheel_speed,
     out=state.as_reader(),
     lkas_cmd={
       "NEW_SIGNAL_5": 0,
@@ -179,7 +180,7 @@ def test_lateral_first_frame_outside_angle_limit_stays_inactive():
   steering_message = next(send for send in sends if send[0] == 0x345)
   values = decode_steering_message(steering_message)
   assert values["LKA_ACTIVE"] == 0
-  assert values["CMD"] == int(measured_angle * 10 - 392)
+  assert values["CMD"] == round(measured_angle * 10 - 392)
   assert actuators.steeringAngleDeg == measured_angle
 
 
@@ -190,7 +191,7 @@ def test_lateral_transition_outside_angle_limit_stays_inactive_until_in_range():
   actuators, sends = controller.update(control, structs.CarControlSP(), make_state(-151.0), 0)
   values = decode_steering_message(next(send for send in sends if send[0] == 0x345))
   assert values["LKA_ACTIVE"] == 0
-  assert values["CMD"] == int(-151.0 * 10 - 392)
+  assert values["CMD"] == round(-151.0 * 10 - 392)
   assert actuators.steeringAngleDeg == -151.0
 
   controller.update(control, structs.CarControlSP(), make_state(0.0), 10_000_000)
@@ -216,6 +217,17 @@ def test_lateral_hard_cap_is_150_degrees():
   controller.apply_angle_last = 149.0
   actuators, _sends = controller.update(make_control(True, 500.0), structs.CarControlSP(), make_state(149.0), 0)
   assert abs(actuators.steeringAngleDeg) <= 150.
+
+
+def test_lateral_limits_use_front_wheel_mean_not_rear_speed():
+  front_speed_controller = make_controller()
+  rear_speed_controller = make_controller()
+  control = make_control(True, 80.0)
+  front_state = make_state(0.0, speed=14.0, front_wheel_speed=18.0)
+  rear_state = make_state(0.0, speed=14.0, front_wheel_speed=14.0)
+  front_actuators, _ = front_speed_controller.update(control, structs.CarControlSP(), front_state, 0)
+  rear_actuators, _ = rear_speed_controller.update(control, structs.CarControlSP(), rear_state, 0)
+  assert front_actuators.steeringAngleDeg < rear_actuators.steeringAngleDeg
 
 
 def test_parser_layout_matches_route():
@@ -264,6 +276,7 @@ def test_chery_state_update_decodes_route_signals():
   assert state.wheelSpeeds.fr == pytest.approx(10 / 3.6, abs=1e-3)
   assert state.wheelSpeeds.rl == pytest.approx(13 / 3.6, abs=1e-3)
   assert state.wheelSpeeds.rr == pytest.approx(12 / 3.6, abs=1e-3)
+  assert car_state.front_wheel_speed == pytest.approx((10 + 11) / 2 / 3.6, abs=1e-3)
   assert state.steeringAngleDeg == pytest.approx(-12.3)
   assert state.steeringTorque == pytest.approx(-24)
   assert state.steeringPressed is False

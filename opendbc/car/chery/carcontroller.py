@@ -27,7 +27,7 @@ class CarController(CarControllerBase):
         apply_angle = apply_steer_angle_limits_vm(
           actuators.steeringAngleDeg,
           self.apply_angle_last,
-          CS.out.vEgoRaw,
+          CS.front_wheel_speed,
           CS.out.steeringAngleDeg,
           True,
           CarControllerParams,

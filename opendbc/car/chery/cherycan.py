@@ -17,7 +17,7 @@ def calculate_crc(data: bytes) -> int:
 
 
 def create_steering_control(packer, bus: int, apply_steer: float, lkas_enable: bool, stock_values: dict):
-  command = int(apply_steer * STEER_ANGLE_SCALE + STEER_ANGLE_OFFSET)
+  command = int(round(apply_steer * STEER_ANGLE_SCALE + STEER_ANGLE_OFFSET))
   if lkas_enable and 0 <= command <= 2:
     command = 2
   values = {

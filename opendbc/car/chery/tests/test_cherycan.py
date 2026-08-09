@@ -38,7 +38,7 @@ def test_inactive_steering_preserves_exact_command(angle):
   address, dat, bus = create_steering_control(packer, 0, angle, False, stock)
   parser = CANParser("chery_canfd", [("LKAS_CAM_CMD_345", 0)], 0)
   parser.update([[0, [(address, dat, bus)]]])
-  assert parser.vl["LKAS_CAM_CMD_345"]["CMD"] == int(angle * 10 - 392)
+  assert parser.vl["LKAS_CAM_CMD_345"]["CMD"] == round(angle * 10 - 392)
 
 
 @pytest.mark.parametrize("apply_steer, fixture", [(-7.1, 0), (-7.0, 1)])

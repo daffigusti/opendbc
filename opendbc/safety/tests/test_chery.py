@@ -1,5 +1,11 @@
+import math
+
 from opendbc.safety.tests.common import CANPackerSafety, MAX_WRONG_COUNTERS, SafetyTest, make_msg
 from opendbc.safety.tests.libsafety import libsafety_py
+from opendbc.car.chery.values import CAR, CarControllerParams
+from opendbc.car.chery.interface import CarInterface
+from opendbc.car.lateral import get_max_angle_delta_vm, get_max_angle_vm
+from opendbc.car.vehicle_model import VehicleModel
 
 
 SAFETY_CHERY = 35
@@ -308,8 +314,11 @@ class TestCherySafety(SafetyTest):
       self.assertFalse(self._rx(repeated_msg), hex(address))
 
   def test_tx_denied_and_forwarding_disabled(self):
-    self.assertFalse(self.safety.safety_tx_hook(make_msg(0, 0x360)))
-    self.assertFalse(self.safety.safety_tx_hook(make_msg(0, 0x360, 8)))
+    for controls_allowed in (False, True):
+      self.safety.set_controls_allowed(controls_allowed)
+      for bus in range(4):
+        self.assertFalse(self.safety.safety_tx_hook(make_msg(bus, 0x360, 6)))
+        self.assertFalse(self.safety.safety_tx_hook(make_msg(bus, 0x360, 8)))
     self.assertEqual(self.safety.safety_fwd_hook(0, 0x345), 2)
     self.assertEqual(self.safety.safety_fwd_hook(2, 0x345), -1)
     self.assertEqual(self.safety.safety_fwd_hook(0, 0x360), 2)
@@ -322,7 +331,7 @@ class TestCherySafety(SafetyTest):
     self.safety.set_controls_allowed(True)
     for angle in (-150.1, -150.0, 150.0, 150.1):
       raw = round(angle * 10 - 392)
-      self.safety.set_desired_angle_last(raw)
+      self.safety.set_desired_angle_last(round(angle * 100))
       allowed = abs(angle) <= 150.0
       self.assertEqual(allowed, self._tx(self._angle_cmd_msg(angle, True)))
 
@@ -361,10 +370,63 @@ class TestCherySafety(SafetyTest):
       result = self._tx(self._angle_cmd_msg(0, enabled))
       self.assertEqual(result, controls or not enabled)
 
+  # Chery VM limits replace static AngleSteeringSafetyTest rate tables: the
+  # Panda hook and production controller must share vehicle-model boundaries.
+  def _vm(self):
+    return VehicleModel(CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5))
+
+  def _vm_angle(self, speed):
+    return min(150.0, get_max_angle_vm(max(speed, 1.0), self._vm(), CarControllerParams))
+
+  def test_vm_lateral_accel_boundaries(self):
+    for speed in (0, 1, 5, 10, 15, 30, 50):
+      model_speed = max(speed, 1)
+      self._reset_speed_samples(model_speed + 1)
+      limit = self._vm_angle(speed)
+      for sign in (-1, 1):
+        self.safety.set_controls_allowed(True)
+        boundary = sign * math.floor(limit * 10) / 10
+        self.safety.set_desired_angle_last(round(boundary * 100))
+        self.assertTrue(self._tx(self._angle_cmd_msg(boundary, True)), (speed, sign, limit, boundary))
+        self.safety.set_desired_angle_last(round(boundary * 100))
+        outside = round(sign * (limit + 0.1), 1)
+        self.assertFalse(self._tx(self._angle_cmd_msg(outside, True)))
+
+  def test_vm_lateral_jerk_boundaries(self):
+    for speed in (0, 1, 5, 10, 15, 30, 50):
+      model_speed = max(speed, 1)
+      self._reset_speed_samples(model_speed + 1)
+      limit = min(150.0, get_max_angle_delta_vm(model_speed, self._vm(), CarControllerParams))
+      self.safety.set_controls_allowed(True)
+      self.safety.set_desired_angle_last(0)
+      boundary = math.floor(limit * 10) / 10
+      self.assertTrue(self._tx(self._angle_cmd_msg(boundary, True)), (speed, limit))
+      self.safety.set_desired_angle_last(0)
+      if limit < 150.0:
+        outside = math.ceil(limit * 10) / 10 + 0.1
+        self.assertFalse(self._tx(self._angle_cmd_msg(outside, True)), (speed, limit, boundary, outside))
+
+  def test_vm_real_time_window_accepts_50hz_commands(self):
+    self._reset_speed_samples(11)
+    self.safety.set_controls_allowed(True)
+    self.safety.set_desired_angle_last(0)
+    angle = 0.1
+    for _ in range(10):
+      self.assertTrue(self._tx(self._angle_cmd_msg(angle, True)))
+
+  def test_front_speed_vm_setup_matches_production_wire_command(self):
+    # Front/rear disagreement must not make Panda validate controller output
+    # against rear speed; production uses the front wheel mean.
+    self._reset_speed_samples(18)
+    self.safety.set_controls_allowed(True)
+    self.safety.set_desired_angle_last(0)
+    self.assertTrue(self._tx(self._angle_cmd_msg(0.1, True)))
+
   def test_every_non_steering_tx_and_wrong_dlc_is_rejected(self):
     self.safety.set_controls_allowed(True)
-    for addr in (0x03E, 0x1D3, 0x316, 0x394, 0x3A2, 0x3A5, 0x360, 0x3A2):
-      self.assertFalse(self._tx(make_msg(0, addr, 8)))
+    for addr, length in ((0x03E, 48), (0x1D3, 8), (0x316, 8), (0x394, 8),
+                         (0x3A2, 8), (0x3A5, 8), (0x360, 6)):
+      self.assertFalse(self._tx(make_msg(0, addr, length)))
     for length in (0, 1, 2, 4, 7):
       self.assertFalse(self._tx(self._angle_cmd_msg(0, False, length=length)))
 

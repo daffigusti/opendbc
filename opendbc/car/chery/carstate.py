@@ -19,6 +19,7 @@ class CarState(CarStateBase):
     self.acc_cmd = {}
     self.buttons_stock_values = {}
     self.brake_pos = 0
+    self.front_wheel_speed = 0.0
 
   @staticmethod
   def get_can_parsers(CP, CP_SP):
@@ -67,6 +68,7 @@ class CarState(CarStateBase):
     fr = cp.vl["WHEEL_SPEED_FRNT"]["WHEEL_SPEED_FR"] * CV.KPH_TO_MS
     rl = cp.vl["WHEEL_SPEED_REAR"]["WHEEL_SPEED_RL"] * CV.KPH_TO_MS
     rr = cp.vl["WHEEL_SPEED_REAR"]["WHEEL_SPEED_RR"] * CV.KPH_TO_MS
+    self.front_wheel_speed = (fl + fr) / 2
     ret.wheelSpeeds.fl, ret.wheelSpeeds.fr = fl, fr
     ret.wheelSpeeds.rl, ret.wheelSpeeds.rr = rl, rr
     self.parse_wheel_speeds(ret, fl, fr, rl, rr, unit=1.0)

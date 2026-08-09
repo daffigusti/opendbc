@@ -396,7 +396,7 @@ class TestCherySafety(SafetyTest):
     for speed in (0, 1, 5, 10, 15, 30, 50):
       model_speed = max(speed, 1)
       self._reset_speed_samples(model_speed + 1)
-      limit = min(150.0, get_max_angle_delta_vm(model_speed, self._vm(), CarControllerParams))
+      limit = min(150.0, 5.0, get_max_angle_delta_vm(model_speed, self._vm(), CarControllerParams))
       self.safety.set_controls_allowed(True)
       self.safety.set_desired_angle_last(0)
       boundary = math.floor(limit * 10) / 10

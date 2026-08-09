@@ -14,6 +14,7 @@ class CarController(CarControllerBase):
     self.packer = CANPacker(dbc_names[Bus.pt])
     self.VM = VehicleModel(CP)
     self.apply_angle_last = None
+    self.angle_command_skipped = False
 
   def update(self, CC, CC_SP, CS, now_nanos):
     can_sends = []
@@ -22,6 +23,8 @@ class CarController(CarControllerBase):
 
     if self.frame % CarControllerParams.STEER_STEP == 0:
       if self.apply_angle_last is None:
+        self.apply_angle_last = CS.out.steeringAngleDeg
+      elif self.angle_command_skipped and abs(CS.out.steeringAngleDeg) <= 370.4:
         self.apply_angle_last = CS.out.steeringAngleDeg
       if lat_active:
         apply_angle = apply_steer_angle_limits_vm(
@@ -38,6 +41,9 @@ class CarController(CarControllerBase):
       self.apply_angle_last = apply_angle
       if abs(apply_angle) <= 370.4:
         can_sends.append(create_steering_control(self.packer, self.CAN.main, apply_angle, lat_active, CS.lkas_cmd))
+        self.angle_command_skipped = False
+      else:
+        self.angle_command_skipped = True
 
     new_actuators = actuators.as_builder()
     new_actuators.steeringAngleDeg = self.apply_angle_last if self.apply_angle_last is not None else CS.out.steeringAngleDeg

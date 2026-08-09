@@ -9,8 +9,13 @@ static bool chery_engine_gas = false;
 static bool chery_acc_gas = false;
 static bool chery_inhibited = false;
 static bool chery_sensor_invalid = false;
+static int chery_current_angle_deg100 = 0;
 static uint8_t chery_rx_seen_mask = 0U;
 static bool chery_reauth_required = false;
+
+static int chery_abs(int value) {
+  return value < 0 ? -value : value;
+}
 
 static bool chery_health_ready(void) {
   return (chery_rx_seen_mask == 0x3FU) && !safety_rx_checks_invalid && !chery_sensor_invalid && !chery_inhibited;
@@ -63,7 +68,8 @@ static void chery_rx_hook(const CANPacket_t *msg) {
     }
   } else if (msg->addr == 0x1D3U) {
     const uint16_t raw = (uint16_t)(((msg->data[0] << 6U) | (msg->data[1] >> 2U)) & 0x3FFFU);
-    update_sample(&angle_meas, (raw * 10) - 78000);
+    chery_current_angle_deg100 = (raw * 10) - 78000;
+    update_sample(&angle_meas, chery_current_angle_deg100);
   } else if (msg->addr == 0x394U) {
     const uint16_t raw = (uint16_t)(((msg->data[0] << 4U) | (msg->data[1] >> 4U)) & 0x0FFFU);
     update_sample(&torque_driver, to_signed(raw, 12));
@@ -116,6 +122,16 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
     return false;
   }
 
+  // Match the controller's low-speed 5 degree/frame fault avoidance limit.
+  if (steer_control_enabled && (chery_abs(desired_angle - desired_angle_last) > 500)) {
+    return false;
+  }
+
+  // Never enable lateral control while rack angle is outside the controller cap.
+  if (steer_control_enabled && (chery_abs(chery_current_angle_deg100) > 15000)) {
+    return false;
+  }
+
   // Do not permit an inactive command to wrap or clamp across the signed-13
   // representable physical range.
   if (!steer_control_enabled && ((desired_angle > CHERY_STEERING_LIMITS.max_angle) ||
@@ -128,9 +144,10 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
 }
 
 static bool chery_fwd_hook(int bus_num, int addr) {
-  // Generic safety forwarding supplies bus 0 <-> 2. Only block the camera
-  // copy of our relay-monitored steering command.
-  return (bus_num == 2) && (addr == 0x345U);
+  // Let stock steering pass through only when the measured rack angle is
+  // outside the representable command range. Within range, block stock
+  // steering while retaining forwarding for stock buttons and other frames.
+  return (bus_num == 2) && (addr == 0x345U) && (chery_abs(chery_current_angle_deg100) <= 37040);
 }
 
 static uint32_t chery_get_checksum(const CANPacket_t *msg) {
@@ -189,6 +206,7 @@ static safety_config chery_init(uint16_t param) {
   chery_acc_gas = false;
   chery_inhibited = false;
   chery_sensor_invalid = false;
+  chery_current_angle_deg100 = 0;
   chery_rx_seen_mask = 0U;
   chery_reauth_required = false;
   // Require initial valid data and an explicit safety tick before authorizing ACC/MADS.
@@ -204,7 +222,7 @@ static safety_config chery_init(uint16_t param) {
     {.msg = {{0x3A2, 2, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
     {.msg = {{0x3A5, 2, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
   };
-  static const CanMsg chery_tx_msgs[] = {{0x345, 0, 8, .check_relay = true}};
+  static const CanMsg chery_tx_msgs[] = {{0x345, 0, 8, .check_relay = true, .disable_static_blocking = true}};
   safety_config config = {
     .rx_checks = chery_rx_checks,
     .rx_checks_len = sizeof(chery_rx_checks) / sizeof(chery_rx_checks[0]),

@@ -177,7 +177,7 @@ static bool chery_fwd_hook(int bus_num, int addr) {
     if (chery_stock_aeb) {
       return 0;
     }
-    return chery_longitudinal ? -1 : 0;
+    return chery_longitudinal;
   }
   // Let stock steering pass through only when the measured rack angle is
   // outside the representable command range. Within range, block stock

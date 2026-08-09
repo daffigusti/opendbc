@@ -153,6 +153,8 @@ def test_chery_state_update_decodes_route_signals():
   assert state.cruiseState.enabled
   assert state.cruiseState.speed == pytest.approx(72 / 3.6)
   assert state.stockAeb
+  assert state.stockFcw is False
+  assert car_state.brake_pos == 25
   assert state.brakePressed
   assert state.gearShifter == structs.CarState.GearShifter.drive
   assert {str(event.type) for event in state.buttonEvents} == {"accelCruise"}
@@ -203,15 +205,46 @@ def test_acc_available_values(available, expected):
   assert state.cruiseState.available is expected
 
 
-@pytest.mark.parametrize("aeb, expected", [(0, False), (2, False), (3, True)])
-def test_stock_aeb_only_reports_triggered(aeb, expected):
+@pytest.mark.parametrize("acc_aeb, setting_aeb, expected", [
+  (0, 3, False),
+  (1, 0, True),
+  (1, 3, True),
+])
+def test_stock_aeb_uses_acc_signal_not_setting(acc_aeb, setting_aeb, expected):
   cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
   parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
   packer = CANPacker("chery_canfd")
-  address, data, bus = packer.make_can_msg("SETTING", parsers[Bus.cam].bus, {"AEB_ACTIVE": float(aeb)})
-  parsers[Bus.cam].update([[0, [(address, data, bus)]]])
+  acc_address, acc_data, acc_bus = packer.make_can_msg(
+    "ACC", parsers[Bus.cam].bus, {"AEB_ACTIVE": float(acc_aeb)},
+  )
+  setting_address, setting_data, setting_bus = packer.make_can_msg(
+    "SETTING", parsers[Bus.cam].bus, {"AEB_ACTIVE": float(setting_aeb)},
+  )
+  parsers[Bus.cam].update([[0, [
+    (acc_address, acc_data, acc_bus), (setting_address, setting_data, setting_bus),
+  ]]])
   state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
   assert state.stockAeb is expected
+
+
+@pytest.mark.parametrize("brake_pos, brake_press, expected", [(25, 0, False), (0, 1, True)])
+def test_brake_state_uses_engine_switch_and_preserves_brake_position(brake_pos, brake_press, expected):
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
+  packer = CANPacker("chery_canfd")
+  address, data, bus = packer.make_can_msg(
+    "BRAKE_DATA", parsers[Bus.pt].bus, {"BRAKE_POS": float(brake_pos)},
+  )
+  engine_address, engine_data, engine_bus = packer.make_can_msg(
+    "ENGINE_DATA", parsers[Bus.pt].bus, {"BRAKE_PRESS": float(brake_press)},
+  )
+  parsers[Bus.pt].update([[0, [
+    (address, data, bus), (engine_address, engine_data, engine_bus),
+  ]]])
+  car_state = CarState(cp, structs.CarParamsSP())
+  state, _ = car_state.update(parsers)
+  assert state.brakePressed is expected
+  assert car_state.brake_pos == brake_pos
 
 
 @pytest.mark.parametrize("active, acc_gas, engine_gas, expected", [

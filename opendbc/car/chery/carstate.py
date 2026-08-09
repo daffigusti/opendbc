@@ -18,6 +18,7 @@ class CarState(CarStateBase):
     self.lkas_cmd = {}
     self.acc_cmd = {}
     self.buttons_stock_values = {}
+    self.brake_pos = 0
 
   @staticmethod
   def get_can_parsers(CP, CP_SP):
@@ -72,7 +73,8 @@ class CarState(CarStateBase):
     ret.standstill = ret.vEgoRaw < 1e-3
     ret.gasPressed = (bool(cp_cam.vl["ACC_CMD"]["GAS_PRESSED"]) if cp_cam.vl["ACC"]["ACC_ACTIVE"]
                       else cp.vl["ENGINE_DATA"]["GAS"] > 1)
-    ret.brakePressed = bool(cp.vl["ENGINE_DATA"]["BRAKE_PRESS"] or cp.vl["BRAKE_DATA"]["BRAKE_POS"])
+    self.brake_pos = cp.vl["BRAKE_DATA"]["BRAKE_POS"]
+    ret.brakePressed = cp.vl["ENGINE_DATA"]["BRAKE_PRESS"] != 0
     ret.steeringAngleDeg = cp.vl["STEER_ANGLE_SENSOR"]["STEER_ANGLE"]
     ret.steeringTorque = cp.vl["STEER_SENSOR_2"]["TORQUE_DRIVER"]
     ret.steeringTorqueEps = cp.vl["STEER_ANGLE_SENSOR"]["TORQUE"]
@@ -82,7 +84,8 @@ class CarState(CarStateBase):
     ret.cruiseState.enabled = bool(cp_cam.vl["ACC"]["ACC_ACTIVE"] or cp_cam.vl["ACC_CMD"]["STOPPED"])
     ret.cruiseState.speed = cp_cam.vl["SETTING"]["CC_SPEED"] * CV.KPH_TO_MS
     ret.cruiseState.standstill = ret.standstill
-    ret.stockAeb = cp_cam.vl["SETTING"]["AEB_ACTIVE"] == 3
+    ret.stockAeb = cp_cam.vl["ACC"]["AEB_ACTIVE"] == 1
+    ret.stockFcw = False
     ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(int(cp.vl["ENGINE_DATA"]["GEAR"])))
     self.lkas_cmd = cp_cam.vl["LKAS_CAM_CMD_345"].copy()
     self.acc_cmd = cp_cam.vl["ACC_CMD"].copy()

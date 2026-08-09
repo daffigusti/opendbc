@@ -29,6 +29,20 @@ def quantize_steering_angle(angle: float, lkas_enable: bool) -> float:
   return steering_angle(steering_command(angle, lkas_enable))
 
 
+def limit_active_steering_angle(angle: float, apply_angle_last: float) -> float:
+  """Rate-limit active steering in encoded command space, avoiding reserved commands."""
+  previous_raw = steering_command(apply_angle_last, False)
+  target_raw = int(round(angle * STEER_ANGLE_SCALE + STEER_ANGLE_OFFSET))
+  lower_raw, upper_raw = previous_raw - 50, previous_raw + 50
+  command = max(lower_raw, min(target_raw, upper_raw))
+
+  if command in (0, 1):
+    candidates = [raw for raw in (-1, 2) if lower_raw <= raw <= upper_raw]
+    command = min(candidates, key=lambda raw: (abs(raw - target_raw), raw > target_raw))
+
+  return steering_angle(command)
+
+
 def create_steering_control(packer, bus: int, apply_steer: float, lkas_enable: bool, stock_values: dict):
   command = steering_command(apply_steer, lkas_enable)
   values = {

@@ -1,6 +1,6 @@
 from opendbc.can import CANPacker
 from opendbc.car import Bus
-from opendbc.car.chery.cherycan import CanBus, create_steering_control, quantize_steering_angle
+from opendbc.car.chery.cherycan import CanBus, create_steering_control, limit_active_steering_angle, quantize_steering_angle
 from opendbc.car.chery.values import CarControllerParams
 from opendbc.car.lateral import apply_steer_angle_limits_vm
 from opendbc.car.interfaces import CarControllerBase
@@ -43,7 +43,8 @@ class CarController(CarControllerBase):
       else:
         apply_angle = CS.out.steeringAngleDeg
         command_active = False
-      wire_angle = quantize_steering_angle(apply_angle, command_active)
+      wire_angle = (limit_active_steering_angle(apply_angle, self.apply_angle_last)
+                    if command_active else quantize_steering_angle(apply_angle, False))
       if abs(wire_angle) <= 370.4:
         can_sends.append(create_steering_control(self.packer, self.CAN.main, wire_angle, command_active, CS.lkas_cmd))
         self.apply_angle_last = wire_angle

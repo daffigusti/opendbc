@@ -16,10 +16,13 @@ Future evidence required:
 - Capture and decode door and seatbelt frames with confirmed semantics.
 - Capture FCW behavior separately from AEB and confirm route signal mapping.
 - Capture EPS fault and watchdog inputs before claiming steer-fault handling.
-- Capture button behavior for ACC/main and CC_BTN/cancel before adding mappings;
-  current RES_PLUS/RES_MINUS edge mappings are the only verified button semantics.
+- Physical steer ratio and rack range require owner-labeled measurements.
+- Raw ACC command to physical acceleration mapping requires owner-labeled
+  measurements.
+- Stock AEB interaction requires hardware validation.
+- Stage C3, Panda bench, and controlled-drive validation before expanding support.
+- Private evidence verified ACC cancel. `RES_PLUS` TX remains unverified;
+  `0x360` remains denied/forwarded.
 - Driver torque override is decode-only. Sign and threshold require owner-labeled
   stationary correlation before enforcement; `steeringPressed` remains false until
   verified. Acceptance of override enforcement is intentionally deferred.
-- Resume/button TX remains deferred: no runtime caller or capture evidence authorizes
-  transmitting 0x360. Physical bus 0 0x360 is forwarded to bus 2.

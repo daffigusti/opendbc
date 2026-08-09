@@ -240,6 +240,14 @@
     ],
     "package": "Driver Assist Package"
   },
+  "Chery Omoda E5": {
+    "platform": "CHERY_OMODA_E5",
+    "make": "Chery",
+    "brand": "chery",
+    "model": "Omoda E5",
+    "year": [],
+    "package": "All"
+  },
   "Chevrolet Bolt EUV 2022-23": {
     "platform": "CHEVROLET_BOLT_EUV",
     "make": "Chevrolet",

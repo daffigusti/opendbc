@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -6,6 +7,7 @@ from opendbc.car import Bus
 from opendbc.car import structs
 from opendbc.can import CANPacker, CANParser
 from opendbc.car.chery.cherycan import CanBus
+from opendbc.car.chery.carcontroller import CarController
 from opendbc.car.chery.carstate import CarState
 from opendbc.car.chery.fingerprints import FINGERPRINTS, FW_VERSIONS
 from opendbc.car.chery.interface import CarInterface
@@ -96,6 +98,63 @@ def test_chery_signal_ranges_declared_in_dbc():
     " SG_ CMD : 6|10@0- (1,0) [-511|511] \"\" XXX",
     " SG_ ACC_STATE : 9|2@0+ (1,0) [0|3] \"\" XXX",
   } <= dbc_lines
+
+
+def make_control(lat_active: bool, angle: float):
+  control = structs.CarControl()
+  control.latActive = lat_active
+  control.actuators.steeringAngleDeg = angle
+  return control.as_reader()
+
+
+def make_state(measured_angle: float, speed: float = 1.0):
+  state = structs.CarState()
+  state.vEgo = speed
+  state.vEgoRaw = speed
+  state.steeringAngleDeg = measured_angle
+  state.steeringTorque = 0.0
+  return SimpleNamespace(
+    out=state.as_reader(),
+    lkas_cmd={
+      "NEW_SIGNAL_5": 0,
+      "NEW_SIGNAL_6": 0,
+      "NEW_SIGNAL_7": 0,
+      "NEW_SIGNAL_1": 0,
+    },
+    acc_cmd={},
+    buttons_stock_values={},
+  )
+
+
+def make_controller():
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  cp_sp = structs.CarParamsSP()
+  return CarController(DBC[CAR.CHERY_OMODA_E5], cp, cp_sp)
+
+
+def test_lateral_controller_sends_50_hz():
+  controller = make_controller()
+  control = make_control(True, 5.0)
+  state = make_state(0.0, 10.0)
+  steer_messages = 0
+  for frame in range(100):
+    _actuators, sends = controller.update(control, structs.CarControlSP(), state, frame * 10_000_000)
+    steer_messages += sum(addr == 0x345 for addr, _dat, _bus in sends)
+  assert steer_messages == 50
+
+
+def test_lateral_inactive_tracks_measured_angle():
+  controller = make_controller()
+  measured_angle = 17.5
+  actuators, _sends = controller.update(make_control(False, 80.0), structs.CarControlSP(), make_state(measured_angle), 0)
+  assert actuators.steeringAngleDeg == measured_angle
+
+
+def test_lateral_hard_cap_is_150_degrees():
+  controller = make_controller()
+  controller.apply_angle_last = 149.0
+  actuators, _sends = controller.update(make_control(True, 500.0), structs.CarControlSP(), make_state(149.0), 0)
+  assert abs(actuators.steeringAngleDeg) <= 150.
 
 
 def test_parser_layout_matches_route():

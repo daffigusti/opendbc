@@ -10,19 +10,22 @@ static bool chery_acc_gas = false;
 static bool chery_inhibited = false;
 static bool chery_sensor_invalid = false;
 static uint8_t chery_rx_seen_mask = 0U;
+static bool chery_reauth_required = false;
 
-static bool chery_authorized(void) {
-  return (chery_rx_seen_mask == 0x3FU) && !safety_rx_checks_invalid && !chery_sensor_invalid &&
-         chery_acc_available && chery_acc_active && !chery_inhibited;
+static bool chery_health_ready(void) {
+  return (chery_rx_seen_mask == 0x3FU) && !safety_rx_checks_invalid && !chery_sensor_invalid && !chery_inhibited;
 }
 
 static void chery_pcm_cruise_check(void) {
-  const bool physical_cruise_engaged = chery_acc_available && chery_acc_active;
-  if (!physical_cruise_engaged) {
-    // Physical disengagement must be observed even during an RX fault.
+  if (!chery_acc_active) {
+    chery_reauth_required = false;
     pcm_cruise_check(false);
-  } else if (chery_authorized()) {
-    // Preserve physical ACC edge while health is invalid.
+  } else if (!(chery_acc_available && chery_acc_active)) {
+    // ACC state becoming unavailable is not an explicit physical disengagement.
+    pcm_cruise_check(false);
+  } else if (!chery_health_ready()) {
+    chery_reauth_required = true;
+  } else if (!chery_reauth_required) {
     pcm_cruise_check(true);
   }
 }
@@ -152,6 +155,7 @@ static safety_config chery_init(uint16_t param) {
   chery_inhibited = false;
   chery_sensor_invalid = false;
   chery_rx_seen_mask = 0U;
+  chery_reauth_required = false;
   // Require initial valid data and an explicit safety tick before authorizing ACC/MADS.
   safety_rx_checks_invalid = true;
   gas_pressed = false;

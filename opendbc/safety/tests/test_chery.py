@@ -129,6 +129,12 @@ class TestCherySafety(SafetyTest):
     self._rx_field(0x3A5, active=0)
     self.assertFalse(self.safety.get_controls_allowed())
 
+  def _recover_rx_without_acc_off(self):
+    self._rx_field(0x3A2, state=2)
+    self._rx_field(0x3A5, active=1)
+    self._seed_non_acc()
+    self._validate_config()
+
   def test_registration_and_exact_rx_layout(self):
     self.assertEqual(self.safety.get_current_safety_mode(), SAFETY_CHERY)
     self.assertEqual(self.safety.get_current_safety_rx_checks_len(), 6)
@@ -287,6 +293,10 @@ class TestCherySafety(SafetyTest):
       self.assertFalse(self.safety.get_controls_allowed())
       self._validate_config()
       self._rx_field(second, state=2) if second == 0x3A2 else self._rx_field(second, active=1)
+      self.assertFalse(self.safety.get_controls_allowed())
+      self._rx_field(0x3A5, active=0)
+      self._rx_field(0x3A2, state=2)
+      self._rx_field(0x3A5, active=1)
       self.assertTrue(self.safety.get_controls_allowed())
     for state in (0, 1):
       self.setUp()
@@ -389,6 +399,67 @@ class TestCherySafety(SafetyTest):
     self.assertFalse(self.safety.safety_config_valid())
     self.assertFalse(self.safety.get_controls_allowed())
     self.assertFalse(self.safety.get_controls_allowed_lateral())
+
+  def test_pre_engagement_checksum_fault_requires_acc_off(self):
+    self._seed_all()
+    self._validate_config()
+    bad = self._packet(0x3A5, 2, active=1)
+    bad.data[7] ^= 1
+    self.assertFalse(self._rx(bad))
+    self._rx_field(0x3A2, state=2)
+    self._rx_field(0x3A5, active=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+
+    self._recover_rx_without_acc_off()
+    self.assertFalse(self.safety.get_controls_allowed())
+    self._rx_field(0x3A2, state=0)
+    self._rx_field(0x3A2, state=2)
+    self._rx_field(0x3A5, active=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+    self._rx_field(0x3A5, active=0)
+    self._rx_field(0x3A2, state=2)
+    self._rx_field(0x3A5, active=1)
+    self.assertTrue(self.safety.get_controls_allowed())
+
+  def test_pre_engagement_timeout_fault_requires_acc_off(self):
+    self._seed_all()
+    self._validate_config()
+    self.safety.set_timer(2_000_001)
+    self.safety.safety_tick_current_safety_config()
+    self._rx_field(0x3A2, state=2)
+    self._rx_field(0x3A5, active=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+
+    self._recover_rx_without_acc_off()
+    self.assertFalse(self.safety.get_controls_allowed())
+    self._rx_field(0x3A2, state=0)
+    self._rx_field(0x3A2, state=2)
+    self._rx_field(0x3A5, active=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+    self._rx_field(0x3A5, active=0)
+    self._rx_field(0x3A2, state=2)
+    self._rx_field(0x3A5, active=1)
+    self.assertTrue(self.safety.get_controls_allowed())
+
+  def test_pre_engagement_negative_wheel_fault_requires_acc_off(self):
+    self._seed_all()
+    self._validate_config()
+    self._rx_field(0x316, fr=-1, fl=100)
+    self._rx_field(0x3A2, state=2)
+    self._rx_field(0x3A5, active=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+
+    self._recover_rx_without_acc_off()
+    self.assertFalse(self.safety.get_controls_allowed())
+    self._rx_field(0x3A2, state=0)
+    self._rx_field(0x316, fr=100, fl=100)
+    self._rx_field(0x3A2, state=2)
+    self._rx_field(0x3A5, active=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+    self._rx_field(0x3A5, active=0)
+    self._rx_field(0x3A2, state=2)
+    self._rx_field(0x3A5, active=1)
+    self.assertTrue(self.safety.get_controls_allowed())
 
   def test_signal_extraction_boundaries(self):
     for raw, expected in ((0, -78000), (16383, 85830)):

@@ -94,6 +94,19 @@ class TestCherySafety(SafetyTest):
       packet.data[24 if address == 0x03E else 7] ^= 1
       self.assertFalse(self._rx(packet))
 
+  def test_invalid_integrity_revokes_longitudinal_and_mads_lateral_controls(self):
+    self._seed_all()
+    self.safety.set_controls_allowed(True)
+    self.safety.set_controls_allowed_lateral(True)
+    self.assertTrue(self.safety.get_controls_allowed())
+    self.assertTrue(self.safety.get_controls_allowed_lateral())
+
+    packet = self._golden(0x3A5, 2)
+    packet.data[7] ^= 1
+    self.assertFalse(self._rx(packet))
+    self.assertFalse(self.safety.get_controls_allowed())
+    self.assertFalse(self.safety.get_controls_allowed_lateral())
+
   def test_each_engine_data_integrity_island_is_required(self):
     for island in range(5):
       self.setUp()

@@ -2,8 +2,55 @@
 
 #include "opendbc/safety/declarations.h"
 
+static bool chery_acc_available = false;
+static bool chery_acc_active = false;
+static bool chery_stock_aeb = false;
+static bool chery_engine_gas = false;
+static bool chery_acc_gas = false;
+
+static void chery_update_gas(void) {
+  gas_pressed = chery_engine_gas || chery_acc_gas;
+}
+
+static void chery_apply_inhibitors(void) {
+  if (brake_pressed || gas_pressed || chery_stock_aeb) {
+    controls_allowed = false;
+  }
+}
+
 static void chery_rx_hook(const CANPacket_t *msg) {
-  SAFETY_UNUSED(msg);
+  if (msg->addr == 0x316U) {
+    const int front_left = to_signed((msg->data[0] << 8U) | msg->data[1], 16);
+    const int front_right = to_signed((msg->data[2] << 8U) | msg->data[3], 16);
+    if ((front_left < 0) || (front_right < 0)) {
+      controls_allowed = false;
+      mads_exit_controls(MADS_DISENGAGE_REASON_INVALID_RX);
+    } else {
+      UPDATE_VEHICLE_SPEED(((front_left + front_right) / 2.0) * 0.00829 / 3.6);
+      vehicle_moving = (front_left > 0) || (front_right > 0);
+    }
+  } else if (msg->addr == 0x1D3U) {
+    const uint16_t raw = (uint16_t)(((msg->data[0] << 6U) | (msg->data[1] >> 2U)) & 0x3FFFU);
+    update_sample(&angle_meas, (raw * 10) - 78000);
+  } else if (msg->addr == 0x394U) {
+    const uint16_t raw = (uint16_t)(((msg->data[0] << 4U) | (msg->data[1] >> 4U)) & 0x0FFFU);
+    update_sample(&torque_driver, to_signed(raw, 12));
+  } else if (msg->addr == 0x03EU) {
+    brake_pressed = GET_BIT(msg, 220U);
+    const uint16_t engine_gas = (uint16_t)((msg->data[22] << 8U) | msg->data[23]);
+    chery_engine_gas = engine_gas > 10U;
+  } else if (msg->addr == 0x3A2U) {
+    const uint8_t state = msg->data[1] & 0x03U;
+    chery_acc_available = (state == 2U) || (state == 3U);
+    chery_acc_gas = GET_BIT(msg, 47U);
+    pcm_cruise_check(chery_acc_available && chery_acc_active);
+  } else if (msg->addr == 0x3A5U) {
+    chery_acc_active = GET_BIT(msg, 20U);
+    chery_stock_aeb = GET_BIT(msg, 46U);
+    pcm_cruise_check(chery_acc_available && chery_acc_active);
+  }
+  chery_update_gas();
+  chery_apply_inhibitors();
 }
 
 static bool chery_tx_hook(const CANPacket_t *msg) {
@@ -65,6 +112,13 @@ static bool chery_get_quality_flag_valid(const CANPacket_t *msg) {
 
 static safety_config chery_init(uint16_t param) {
   SAFETY_UNUSED(param);
+  chery_acc_available = false;
+  chery_acc_active = false;
+  chery_stock_aeb = false;
+  chery_engine_gas = false;
+  chery_acc_gas = false;
+  gas_pressed = false;
+  brake_pressed = false;
   static RxCheck chery_rx_checks[] = {
     // max_counter=15 is full-route aggregate: 385 observed 0x1D3 wraps support four-bit counter.
     {.msg = {{0x03E, 0, 48, 100U, .max_counter = 15U, .ignore_quality_flag = false}, {0}, {0}}},

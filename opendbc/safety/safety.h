@@ -108,6 +108,7 @@ static bool is_msg_valid(RxCheck addr_list[], int index) {
     if (!addr_list[index].status.valid_checksum || !addr_list[index].status.valid_quality_flag || (addr_list[index].status.wrong_counters >= MAX_WRONG_COUNTERS)) {
       valid = false;
       controls_allowed = false;
+      mads_exit_controls(MADS_DISENGAGE_REASON_INVALID_RX);
     }
   }
   return valid;

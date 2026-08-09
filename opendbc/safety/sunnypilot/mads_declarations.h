@@ -32,6 +32,7 @@ typedef enum __attribute__((packed)) {
   MADS_DISENGAGE_REASON_NON_PCM_ACC_MAIN_DESYNC = 16,     ///< ACC sync error
   MADS_DISENGAGE_REASON_HEARTBEAT_ENGAGED_MISMATCH = 32,  ///< Heartbeat mismatch
   MADS_DISENGAGE_REASON_STEERING_DISENGAGE = 64,          ///< Steering disengage
+  MADS_DISENGAGE_REASON_INVALID_RX = 128,                 ///< Invalid safety-critical RX
 } DisengageReason;
 
 // ===============================

@@ -78,6 +78,15 @@ float get_vehicle_speed_min(void);
 float get_vehicle_speed_max(void);
 int get_current_safety_mode(void);
 int get_current_safety_param(void);
+int get_current_safety_rx_checks_len(void);
+int get_rx_check_addr(int index);
+int get_rx_check_bus(int index);
+int get_rx_check_len(int index);
+int get_rx_check_frequency(int index);
+int get_rx_check_max_counter(int index);
+bool get_rx_check_ignore_quality(int index);
+bool get_rx_check_ignore_checksum(int index);
+bool get_rx_check_ignore_counter(int index);
 
 void set_torque_meas(int min, int max);
 int get_torque_meas_min(void);

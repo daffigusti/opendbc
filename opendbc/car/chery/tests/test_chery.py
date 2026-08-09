@@ -47,6 +47,10 @@ def test_can_bus_offsets():
   ]
   CarInterface.get_params_sp(params, CAR.CHERY_OMODA_E5, offset_fingerprint, [], alpha_long=False, is_release_sp=False, docs=False)
   assert params.enableBsm
+  offset_parsers = CarState.get_can_parsers(params, structs.CarParamsSP())
+  assert offset_parsers[Bus.pt].bus == 4
+  assert offset_parsers[Bus.cam].bus == 6
+  assert offset_parsers[Bus.loopback].bus == 128
 
 
 def test_chery_platform_registered():
@@ -115,13 +119,13 @@ def test_chery_state_update_decodes_route_signals():
       ("STEER_ANGLE_SENSOR", {"STEER_ANGLE": -12.3, "TORQUE": -7}),
       ("STEER_SENSOR_2", {"TORQUE_DRIVER": -24}),
       ("BRAKE_DATA", {"BRAKE_POS": 25}),
-      ("ENGINE_DATA", {"GAS": 4, "BRAKE_PRESS": 1}),
+      ("ENGINE_DATA", {"GAS": 4, "BRAKE_PRESS": 1, "GEAR": 4}),
       ("STEER_BUTTON", {"ACC": 1, "RES_PLUS": 1}),
     ],
     Bus.cam: [
       ("ACC", {"ACC_ACTIVE": 1, "AEB_ACTIVE": 1}),
       ("ACC_CMD", {"STOPPED": 0, "GAS_PRESSED": 1}),
-      ("SETTING", {"CC_SPEED": 72, "ACC_AVAILABLE": 1}),
+      ("SETTING", {"CC_SPEED": 72, "ACC_AVAILABLE": 1, "AEB_ACTIVE": 3}),
       ("LKAS_STATE", {"LKA_ACTIVE": 1}),
     ],
     Bus.loopback: [],
@@ -134,9 +138,12 @@ def test_chery_state_update_decodes_route_signals():
     if frames:
       parsers[bus].update([0, frames])
 
-  state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
+  car_state = CarState(cp, structs.CarParamsSP())
+  state, _ = car_state.update(parsers)
   assert state.wheelSpeeds.fl == pytest.approx(11 / 3.6, abs=1e-3)
   assert state.wheelSpeeds.fr == pytest.approx(10 / 3.6, abs=1e-3)
+  assert state.wheelSpeeds.rl == pytest.approx(13 / 3.6, abs=1e-3)
+  assert state.wheelSpeeds.rr == pytest.approx(12 / 3.6, abs=1e-3)
   assert state.steeringAngleDeg == pytest.approx(-12.3)
   assert state.steeringTorque == pytest.approx(-24)
   assert state.steeringTorqueEps == pytest.approx(-7)
@@ -146,7 +153,14 @@ def test_chery_state_update_decodes_route_signals():
   assert state.cruiseState.enabled
   assert state.cruiseState.speed == pytest.approx(72 / 3.6)
   assert state.stockAeb
-  assert {str(event.type) for event in state.buttonEvents} == {"mainCruise", "accelCruise"}
+  assert state.brakePressed
+  assert state.gearShifter == structs.CarState.GearShifter.drive
+  assert {str(event.type) for event in state.buttonEvents} == {"accelCruise"}
+  assert car_state.lkas_cmd["CMD"] == 0
+  assert car_state.acc_cmd["GAS_PRESSED"] == 1
+  assert car_state.buttons_stock_values["RES_PLUS"] == 1
+  assert not state.doorOpen
+  assert not state.seatbeltUnlatched
 
 
 def test_chery_state_update_decodes_bsm_when_enabled():
@@ -162,3 +176,71 @@ def test_chery_state_update_decodes_bsm_when_enabled():
   state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
   assert state.leftBlindspot
   assert state.rightBlindspot
+
+
+@pytest.mark.parametrize("gear, expected", [
+  (1, structs.CarState.GearShifter.park), (2, structs.CarState.GearShifter.reverse),
+  (3, structs.CarState.GearShifter.neutral), (4, structs.CarState.GearShifter.drive),
+])
+def test_engine_gear_values_parse(gear, expected):
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
+  packer = CANPacker("chery_canfd")
+  address, data, bus = packer.make_can_msg("ENGINE_DATA", parsers[Bus.pt].bus, {"GEAR": float(gear)})
+  parsers[Bus.pt].update([[0, [(address, data, bus)]]])
+  state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
+  assert state.gearShifter == expected
+
+
+@pytest.mark.parametrize("available, expected", [(0, False), (1, True), (2, True), (3, False)])
+def test_acc_available_values(available, expected):
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
+  packer = CANPacker("chery_canfd")
+  address, data, bus = packer.make_can_msg("SETTING", parsers[Bus.cam].bus, {"ACC_AVAILABLE": float(available)})
+  parsers[Bus.cam].update([[0, [(address, data, bus)]]])
+  state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
+  assert state.cruiseState.available is expected
+
+
+@pytest.mark.parametrize("aeb, expected", [(0, False), (2, False), (3, True)])
+def test_stock_aeb_only_reports_triggered(aeb, expected):
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
+  packer = CANPacker("chery_canfd")
+  address, data, bus = packer.make_can_msg("SETTING", parsers[Bus.cam].bus, {"AEB_ACTIVE": float(aeb)})
+  parsers[Bus.cam].update([[0, [(address, data, bus)]]])
+  state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
+  assert state.stockAeb is expected
+
+
+@pytest.mark.parametrize("active, acc_gas, engine_gas, expected", [
+  (1, 1, 0, True), (1, 0, 100, False), (0, 0, 2, True), (0, 0, 1, False),
+])
+def test_gas_source_by_acc_active(active, acc_gas, engine_gas, expected):
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
+  packer = CANPacker("chery_canfd")
+  pt_addr, pt_data, pt_bus = packer.make_can_msg("ENGINE_DATA", parsers[Bus.pt].bus, {"GAS": float(engine_gas)})
+  acc_addr, acc_data, acc_bus = packer.make_can_msg("ACC", parsers[Bus.cam].bus, {"ACC_ACTIVE": float(active)})
+  cmd_addr, cmd_data, cmd_bus = packer.make_can_msg("ACC_CMD", parsers[Bus.cam].bus, {"GAS_PRESSED": float(acc_gas)})
+  parsers[Bus.pt].update([[0, [(pt_addr, pt_data, pt_bus)]]])
+  parsers[Bus.cam].update([[0, [(acc_addr, acc_data, acc_bus), (cmd_addr, cmd_data, cmd_bus)]]])
+  state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
+  assert state.gasPressed is expected
+
+
+def test_buttons_emit_only_verified_resume_edges():
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
+  packer = CANPacker("chery_canfd")
+  state = CarState(cp, structs.CarParamsSP())
+  for values, expected in [
+    ({"RES_PLUS": 1, "RES_MINUS": 0, "ACC": 1, "CC_BTN": 1}, {"accelCruise"}),
+    ({"RES_PLUS": 0, "RES_MINUS": 1, "ACC": 1, "CC_BTN": 1}, {"accelCruise", "decelCruise"}),
+    ({"RES_PLUS": 0, "RES_MINUS": 0, "ACC": 0, "CC_BTN": 0}, {"decelCruise"}),
+  ]:
+    address, data, bus = packer.make_can_msg("STEER_BUTTON", parsers[Bus.pt].bus, values)
+    parsers[Bus.pt].update([[0, [(address, data, bus)]]])
+    events = state.update(parsers)[0].buttonEvents
+    assert {str(event.type) for event in events} == expected

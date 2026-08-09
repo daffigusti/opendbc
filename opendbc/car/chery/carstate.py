@@ -1,4 +1,4 @@
-from opendbc.can import CANParser
+from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.chery.cherycan import CanBus
@@ -10,12 +10,14 @@ class CarState(CarStateBase):
   def __init__(self, CP, CP_SP):
     super().__init__(CP, CP_SP)
     self.button_states = {
-      structs.CarState.ButtonEvent.Type.mainCruise: False,
       structs.CarState.ButtonEvent.Type.accelCruise: False,
       structs.CarState.ButtonEvent.Type.decelCruise: False,
-      structs.CarState.ButtonEvent.Type.cancel: False,
     }
-    self.previous_cruise_enabled = False
+    can_define = CANDefine(DBC[CP.carFingerprint][Bus.pt])
+    self.shifter_values = can_define.dv["ENGINE_DATA"]["GEAR"]
+    self.lkas_cmd = {}
+    self.acc_cmd = {}
+    self.buttons_stock_values = {}
 
   @staticmethod
   def get_can_parsers(CP, CP_SP):
@@ -41,10 +43,8 @@ class CarState(CarStateBase):
 
   def _button_events(self, buttons):
     button_types = {
-      "ACC": structs.CarState.ButtonEvent.Type.mainCruise,
       "RES_PLUS": structs.CarState.ButtonEvent.Type.accelCruise,
       "RES_MINUS": structs.CarState.ButtonEvent.Type.decelCruise,
-      "CC_BTN": structs.CarState.ButtonEvent.Type.cancel,
     }
     events = []
     for signal, event_type in button_types.items():
@@ -70,26 +70,27 @@ class CarState(CarStateBase):
     ret.wheelSpeeds.rl, ret.wheelSpeeds.rr = rl, rr
     self.parse_wheel_speeds(ret, fl, fr, rl, rr, unit=1.0)
     ret.standstill = ret.vEgoRaw < 1e-3
-    ret.gasPressed = cp.vl["ENGINE_DATA"]["GAS"] > 1e-3
-    ret.brakePressed = bool(cp.vl["ENGINE_DATA"]["BRAKE_PRESS"])
+    ret.gasPressed = (bool(cp_cam.vl["ACC_CMD"]["GAS_PRESSED"]) if cp_cam.vl["ACC"]["ACC_ACTIVE"]
+                      else cp.vl["ENGINE_DATA"]["GAS"] > 1)
+    ret.brakePressed = bool(cp.vl["ENGINE_DATA"]["BRAKE_PRESS"] or cp.vl["BRAKE_DATA"]["BRAKE_POS"])
     ret.steeringAngleDeg = cp.vl["STEER_ANGLE_SENSOR"]["STEER_ANGLE"]
     ret.steeringTorque = cp.vl["STEER_SENSOR_2"]["TORQUE_DRIVER"]
     ret.steeringTorqueEps = cp.vl["STEER_ANGLE_SENSOR"]["TORQUE"]
     ret.steeringPressed = abs(ret.steeringTorque) > 1.0
 
-    ret.cruiseState.available = bool(cp_cam.vl["SETTING"]["ACC_AVAILABLE"])
+    ret.cruiseState.available = cp_cam.vl["SETTING"]["ACC_AVAILABLE"] in (1, 2)
     ret.cruiseState.enabled = bool(cp_cam.vl["ACC"]["ACC_ACTIVE"] or cp_cam.vl["ACC_CMD"]["STOPPED"])
     ret.cruiseState.speed = cp_cam.vl["SETTING"]["CC_SPEED"] * CV.KPH_TO_MS
     ret.cruiseState.standstill = ret.standstill
-    # Cruise assignment precedes EPS fault handling; no confirmed EPS fault signal exists.
-    ret.steerFaultTemporary = False
-    self.previous_cruise_enabled = ret.cruiseState.enabled
-
-    ret.stockAeb = bool(cp_cam.vl["ACC"]["AEB_ACTIVE"])
+    ret.stockAeb = cp_cam.vl["SETTING"]["AEB_ACTIVE"] == 3
+    ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(int(cp.vl["ENGINE_DATA"]["GEAR"])))
+    self.lkas_cmd = cp_cam.vl["LKAS_CAM_CMD_345"].copy()
+    self.acc_cmd = cp_cam.vl["ACC_CMD"].copy()
     if self.CP.enableBsm:
       ret.leftBlindspot = bool(cp.vl["BSM_LEFT"]["BSM_LEFT_DETECT"])
       ret.rightBlindspot = bool(cp.vl["BSM_RIGHT"]["BSM_RIGHT_DETECT"])
     ret.doorOpen = False
     ret.seatbeltUnlatched = False
+    self.buttons_stock_values = cp.vl["STEER_BUTTON"].copy()
     ret.buttonEvents = self._button_events(cp.vl["STEER_BUTTON"])
     return ret, ret_sp

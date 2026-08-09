@@ -347,6 +347,20 @@ class TestCherySafety(SafetyTest):
     self.assertFalse(self._tx(self._angle_cmd_msg(0, False, bus=2)))
     self.assertFalse(self._tx(self._angle_cmd_msg(0, False, length=7)))
 
+  def test_active_desired_angle_delta_accepts_five_rejects_five_point_one(self):
+    self._reset_speed_samples(1)
+    self.safety.set_controls_allowed(True)
+    for angle, allowed in ((5.0, True), (5.1, False), (-5.0, True), (-5.1, False)):
+      self.safety.set_desired_angle_last(0)
+      self.assertEqual(allowed, self._tx(self._angle_cmd_msg(angle, True)))
+
+  def test_active_measured_angle_accepts_150_rejects_150_point_one(self):
+    self.safety.set_controls_allowed(True)
+    for angle, allowed in ((150.0, True), (150.1, False), (-150.0, True), (-150.1, False)):
+      self._reset_angle_samples(angle)
+      self.safety.set_desired_angle_last(round(angle * 100))
+      self.assertEqual(allowed, self._tx(self._angle_cmd_msg(angle, True)))
+
   def test_inactive_angle_requires_exact_measured_command_and_range(self):
     self.safety.set_controls_allowed(False)
     for measured in (39.2, 39.3, 150.1, 370.0):
@@ -438,6 +452,10 @@ class TestCherySafety(SafetyTest):
     self.assertEqual(-1, self.safety.safety_fwd_hook(2, 0x345))
     for bus in (1, 3):
       self.assertEqual(-1, self.safety.safety_fwd_hook(bus, 0x345))
+
+    for angle, destination in ((370.4, -1), (-370.4, -1), (370.5, 0), (-370.5, 0)):
+      self._reset_angle_samples(angle)
+      self.assertEqual(destination, self.safety.safety_fwd_hook(2, 0x345))
 
     self.safety.set_relay_malfunction(True)
     for bus in range(4):

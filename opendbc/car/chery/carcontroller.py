@@ -1,6 +1,6 @@
 from opendbc.can import CANPacker
 from opendbc.car import Bus
-from opendbc.car.chery.cherycan import CanBus, create_steering_control
+from opendbc.car.chery.cherycan import CanBus, create_steering_control, quantize_steering_angle
 from opendbc.car.chery.values import CarControllerParams
 from opendbc.car.lateral import apply_steer_angle_limits_vm
 from opendbc.car.interfaces import CarControllerBase
@@ -24,9 +24,12 @@ class CarController(CarControllerBase):
     if self.frame % CarControllerParams.STEER_STEP == 0:
       if self.apply_angle_last is None:
         self.apply_angle_last = CS.out.steeringAngleDeg
-      elif self.angle_command_skipped and abs(CS.out.steeringAngleDeg) <= 370.4:
-        self.apply_angle_last = CS.out.steeringAngleDeg
-      if lat_active:
+      recovering = self.angle_command_skipped and abs(CS.out.steeringAngleDeg) <= 370.4
+      if recovering:
+        # Panda's desired-angle history must be reset by an actual inactive frame.
+        apply_angle = CS.out.steeringAngleDeg
+        command_active = False
+      elif lat_active:
         apply_angle = apply_steer_angle_limits_vm(
           actuators.steeringAngleDeg,
           self.apply_angle_last,
@@ -36,11 +39,14 @@ class CarController(CarControllerBase):
           CarControllerParams,
           self.VM,
         )
+        command_active = True
       else:
         apply_angle = CS.out.steeringAngleDeg
-      self.apply_angle_last = apply_angle
-      if abs(apply_angle) <= 370.4:
-        can_sends.append(create_steering_control(self.packer, self.CAN.main, apply_angle, lat_active, CS.lkas_cmd))
+        command_active = False
+      wire_angle = quantize_steering_angle(apply_angle, command_active)
+      if abs(wire_angle) <= 370.4:
+        can_sends.append(create_steering_control(self.packer, self.CAN.main, wire_angle, command_active, CS.lkas_cmd))
+        self.apply_angle_last = wire_angle
         self.angle_command_skipped = False
       else:
         self.angle_command_skipped = True

@@ -16,10 +16,21 @@ def calculate_crc(data: bytes) -> int:
   return crc ^ CRC_XOR
 
 
+def steering_command(angle: float, lkas_enable: bool) -> int:
+  command = int(round(angle * STEER_ANGLE_SCALE + STEER_ANGLE_OFFSET))
+  return 2 if lkas_enable and 0 <= command <= 2 else command
+
+
+def steering_angle(command: int) -> float:
+  return (command - STEER_ANGLE_OFFSET) / STEER_ANGLE_SCALE
+
+
+def quantize_steering_angle(angle: float, lkas_enable: bool) -> float:
+  return steering_angle(steering_command(angle, lkas_enable))
+
+
 def create_steering_control(packer, bus: int, apply_steer: float, lkas_enable: bool, stock_values: dict):
-  command = int(round(apply_steer * STEER_ANGLE_SCALE + STEER_ANGLE_OFFSET))
-  if lkas_enable and 0 <= command <= 2:
-    command = 2
+  command = steering_command(apply_steer, lkas_enable)
   values = {
     "CMD": command,
     "NEW_SIGNAL_3": 1 if command > 1 else 0,

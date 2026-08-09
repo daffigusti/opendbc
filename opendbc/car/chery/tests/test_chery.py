@@ -163,7 +163,7 @@ def test_lateral_inactive_tracks_measured_angle():
   controller = make_controller()
   measured_angle = 17.5
   actuators, _sends = controller.update(make_control(False, 80.0), structs.CarControlSP(), make_state(measured_angle), 0)
-  assert actuators.steeringAngleDeg == measured_angle
+  assert actuators.steeringAngleDeg == pytest.approx(measured_angle)
 
 
 def decode_steering_message(message):
@@ -181,7 +181,66 @@ def test_lateral_first_frame_outside_angle_limit_stays_inactive():
   values = decode_steering_message(steering_message)
   assert values["LKA_ACTIVE"] == 0
   assert values["CMD"] == round(measured_angle * 10 - 392)
+  assert actuators.steeringAngleDeg == pytest.approx(measured_angle)
+
+
+@pytest.mark.parametrize("measured_angle", [-370.4, 370.4])
+def test_lateral_representable_boundary_is_transmitted(measured_angle):
+  controller = make_controller()
+  actuators, sends = controller.update(make_control(True, 80.0), structs.CarControlSP(), make_state(measured_angle), 0)
+
+  steering_message = next(send for send in sends if send[0] == 0x345)
+  values = decode_steering_message(steering_message)
+  assert values["LKA_ACTIVE"] == 0
+  assert values["CMD"] == round(measured_angle * 10 - 392)
+  assert actuators.steeringAngleDeg == pytest.approx(measured_angle)
+
+
+@pytest.mark.parametrize("measured_angle", [-370.5, 370.5])
+def test_lateral_unrepresentable_boundary_is_not_transmitted(measured_angle):
+  controller = make_controller()
+  actuators, sends = controller.update(make_control(True, 80.0), structs.CarControlSP(), make_state(measured_angle), 0)
+
+  assert not any(send[0] == 0x345 for send in sends)
   assert actuators.steeringAngleDeg == measured_angle
+
+
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_lateral_resume_sends_inactive_measured_angle_before_activation(sign):
+  controller = make_controller()
+  control = make_control(True, sign * 100.0)
+
+  _actuators, sends = controller.update(control, structs.CarControlSP(), make_state(sign * 500.0), 0)
+  assert not any(send[0] == 0x345 for send in sends)
+  controller.update(control, structs.CarControlSP(), make_state(sign * 500.0), 10_000_000)
+
+  actuators, sends = controller.update(control, structs.CarControlSP(), make_state(sign * 100.0), 20_000_000)
+  values = decode_steering_message(next(send for send in sends if send[0] == 0x345))
+  assert values["LKA_ACTIVE"] == 0
+  assert values["CMD"] == round(sign * 100.0 * 10 - 392)
+  assert actuators.steeringAngleDeg == sign * 100.0
+
+  controller.update(control, structs.CarControlSP(), make_state(sign * 100.0), 30_000_000)
+  actuators, sends = controller.update(control, structs.CarControlSP(), make_state(sign * 100.0), 40_000_000)
+  values = decode_steering_message(next(send for send in sends if send[0] == 0x345))
+  assert values["LKA_ACTIVE"] == 1
+  assert abs(values["CMD"] + 392 - round(actuators.steeringAngleDeg * 10)) <= 1
+
+
+@pytest.mark.parametrize("requested", [34.3, 44.3, -34.3, -44.3])
+def test_lateral_limiter_starts_from_encoded_angle(requested):
+  controller = make_controller()
+  starting_angle = 39.4 if requested > 0 else -39.4
+  controller.update(make_control(True, starting_angle), structs.CarControlSP(), make_state(starting_angle, speed=10.0), 0)
+  control = make_control(True, requested)
+  state = make_state(starting_angle, speed=10.0)
+
+  controller.update(control, structs.CarControlSP(), state, 10_000_000)
+  actuators, sends = controller.update(control, structs.CarControlSP(), state, 20_000_000)
+  values = decode_steering_message(next(send for send in sends if send[0] == 0x345))
+  assert values["LKA_ACTIVE"] == 1
+  assert abs((values["CMD"] + 392) / 10 - starting_angle) <= 5.0
+  assert actuators.steeringAngleDeg == pytest.approx((values["CMD"] + 392) / 10)
 
 
 def test_lateral_transition_outside_angle_limit_stays_inactive_until_in_range():

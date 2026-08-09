@@ -48,10 +48,26 @@ static uint8_t chery_get_counter(const CANPacket_t *msg) {
   return msg->addr == 0x03EU ? (msg->data[25] & 0x0FU) : (msg->data[6] & 0x0FU);
 }
 
+static bool chery_get_quality_flag_valid(const CANPacket_t *msg) {
+  if (msg->addr != 0x03EU) {
+    return true;
+  }
+
+  uint8_t counter = msg->data[1] & 0x0FU;
+  for (int offset = 0; offset < 40; offset += 8) {
+    if ((msg->data[offset + 1] & 0x0FU) != counter ||
+        msg->data[offset] != chery_j1850(msg, offset + 1, offset + 7)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 static safety_config chery_init(uint16_t param) {
   SAFETY_UNUSED(param);
   static RxCheck chery_rx_checks[] = {
-    {.msg = {{0x03E, 0, 48, 100U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
+    // max_counter=15 is full-route aggregate: 385 observed 0x1D3 wraps support four-bit counter.
+    {.msg = {{0x03E, 0, 48, 100U, .max_counter = 15U, .ignore_quality_flag = false}, {0}, {0}}},
     {.msg = {{0x1D3, 0, 8, 100U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
     {.msg = {{0x316, 0, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
     {.msg = {{0x394, 0, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
@@ -77,4 +93,5 @@ const safety_hooks chery_hooks = {
   .get_checksum = chery_get_checksum,
   .compute_checksum = chery_compute_checksum,
   .get_counter = chery_get_counter,
+  .get_quality_flag_valid = chery_get_quality_flag_valid,
 };

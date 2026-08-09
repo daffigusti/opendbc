@@ -126,15 +126,22 @@ int get_current_safety_param(void){
   return current_safety_param;
 }
 
+static const CanMsgCheck *get_rx_check_msg(int index){
+  if (index < 0 || index >= current_safety_config.rx_checks_len || current_safety_config.rx_checks == NULL) {
+    return NULL;
+  }
+  return &current_safety_config.rx_checks[index].msg[0];
+}
+
 int get_current_safety_rx_checks_len(void){ return current_safety_config.rx_checks_len; }
-int get_rx_check_addr(int index){ return current_safety_config.rx_checks[index].msg[0].addr; }
-int get_rx_check_bus(int index){ return current_safety_config.rx_checks[index].msg[0].bus; }
-int get_rx_check_len(int index){ return current_safety_config.rx_checks[index].msg[0].len; }
-int get_rx_check_frequency(int index){ return (int)current_safety_config.rx_checks[index].msg[0].frequency; }
-int get_rx_check_max_counter(int index){ return (int)current_safety_config.rx_checks[index].msg[0].max_counter; }
-bool get_rx_check_ignore_quality(int index){ return current_safety_config.rx_checks[index].msg[0].ignore_quality_flag; }
-bool get_rx_check_ignore_checksum(int index){ return current_safety_config.rx_checks[index].msg[0].ignore_checksum; }
-bool get_rx_check_ignore_counter(int index){ return current_safety_config.rx_checks[index].msg[0].ignore_counter; }
+int get_rx_check_addr(int index){ const CanMsgCheck *msg = get_rx_check_msg(index); return msg == NULL ? -1 : msg->addr; }
+int get_rx_check_bus(int index){ const CanMsgCheck *msg = get_rx_check_msg(index); return msg == NULL ? -1 : (int)msg->bus; }
+int get_rx_check_len(int index){ const CanMsgCheck *msg = get_rx_check_msg(index); return msg == NULL ? -1 : msg->len; }
+int get_rx_check_frequency(int index){ const CanMsgCheck *msg = get_rx_check_msg(index); return msg == NULL ? -1 : (int)msg->frequency; }
+int get_rx_check_max_counter(int index){ const CanMsgCheck *msg = get_rx_check_msg(index); return msg == NULL ? -1 : (int)msg->max_counter; }
+bool get_rx_check_ignore_quality(int index){ const CanMsgCheck *msg = get_rx_check_msg(index); return msg != NULL && msg->ignore_quality_flag; }
+bool get_rx_check_ignore_checksum(int index){ const CanMsgCheck *msg = get_rx_check_msg(index); return msg != NULL && msg->ignore_checksum; }
+bool get_rx_check_ignore_counter(int index){ const CanMsgCheck *msg = get_rx_check_msg(index); return msg != NULL && msg->ignore_counter; }
 
 void set_timer(uint32_t t){
   timer_cnt = t;

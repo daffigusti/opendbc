@@ -369,7 +369,8 @@ def test_brake_state_uses_engine_switch_and_preserves_brake_position(brake_pos, 
 
 
 @pytest.mark.parametrize("active, acc_gas, engine_gas, expected", [
-  (1, 1, 0, True), (1, 0, 100, False), (0, 0, 2, True), (0, 0, 1, False),
+  (1, 1, 0, True), (1, 0, 100, True), (1, 0, 0, False), (0, 1, 0, False),
+  (0, 0, 2, True), (0, 0, 1, False),
 ])
 def test_gas_source_by_acc_active(active, acc_gas, engine_gas, expected):
   cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)

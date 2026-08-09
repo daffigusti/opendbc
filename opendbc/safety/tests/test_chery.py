@@ -98,12 +98,8 @@ class TestCherySafety(SafetyTest):
     for island in range(5):
       self.setUp()
       packet = self._golden(0x03E, 0)
-      packet.data[island * 8] ^= 1
-      self.assertFalse(self._rx(packet))
-
-      self.setUp()
-      packet = self._golden(0x03E, 0)
       packet.data[island * 8 + 1] ^= 1
+      packet.data[island * 8] = _j1850(packet.data[island * 8 + 1:island * 8 + 8])
       self.assertFalse(self._rx(packet))
 
   def test_wrong_bus_or_dlc_does_not_match(self):
@@ -113,10 +109,18 @@ class TestCherySafety(SafetyTest):
         if other_address != address:
           self._rx(self._golden(other_address, other_bus))
       wrong_bus = 2 if bus == 0 else 0
-      wrong_dlc = 64 if dlc == 48 else 4
-      self._rx(make_msg(wrong_bus, address, dlc if dlc != 48 else 64))
-      self._rx(make_msg(bus, address, wrong_dlc))
+      self._rx(libsafety_py.make_CANPacket(address, wrong_bus, GOLDEN_FRAMES[(address, bus)]))
       self.assertFalse(self.safety.safety_config_valid())
+
+      self.setUp()
+      for other_address, (other_bus, _other_dlc, _other_frequency) in RX_LAYOUT.items():
+        if other_address != address:
+          self._rx(self._golden(other_address, other_bus))
+      wrong_dlc = 64 if dlc == 48 else 12
+      malformed = GOLDEN_FRAMES[(address, bus)] + bytes(wrong_dlc - dlc)
+      self._rx(libsafety_py.make_CANPacket(address, bus, malformed))
+      self.assertFalse(self.safety.safety_config_valid())
+
       self.setUp()
       for other_address, (other_bus, _other_dlc, _other_frequency) in RX_LAYOUT.items():
         if other_address != address:

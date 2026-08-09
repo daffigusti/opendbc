@@ -71,8 +71,8 @@ class CarState(CarStateBase):
     ret.wheelSpeeds.rl, ret.wheelSpeeds.rr = rl, rr
     self.parse_wheel_speeds(ret, fl, fr, rl, rr, unit=1.0)
     ret.standstill = ret.vEgoRaw < 1e-3
-    ret.gasPressed = (bool(cp_cam.vl["ACC_CMD"]["GAS_PRESSED"]) if cp_cam.vl["ACC"]["ACC_ACTIVE"]
-                      else cp.vl["ENGINE_DATA"]["GAS"] > 1)
+    ret.gasPressed = (cp.vl["ENGINE_DATA"]["GAS"] > 1 or
+                      (bool(cp_cam.vl["ACC_CMD"]["GAS_PRESSED"]) if cp_cam.vl["ACC"]["ACC_ACTIVE"] else False))
     self.brake_pos = cp.vl["BRAKE_DATA"]["BRAKE_POS"]
     ret.brakePressed = cp.vl["ENGINE_DATA"]["BRAKE_PRESS"] != 0
     ret.steeringAngleDeg = cp.vl["STEER_ANGLE_SENSOR"]["STEER_ANGLE"]

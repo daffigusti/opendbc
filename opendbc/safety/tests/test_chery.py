@@ -48,13 +48,77 @@ class TestCherySafety(SafetyTest):
   def setUp(self):
     self.assertEqual(self.safety.set_safety_hooks(SAFETY_CHERY, 0), 0)
     self.safety.init_tests()
+    self._counters = {address: 0 for address in RX_LAYOUT}
 
   def _golden(self, address, bus):
     return libsafety_py.make_CANPacket(address, bus, GOLDEN_FRAMES[(address, bus)])
 
   def _seed_all(self):
     for address, (bus, _dlc, _frequency) in RX_LAYOUT.items():
-      self._rx(self._golden(address, bus))
+      self._rx(self._packet(address, bus))
+
+  def _packet(self, address, bus, counter=None, **fields):
+    """Clone golden route data, mutate decoded raw fields, and repair integrity."""
+    data = bytearray(GOLDEN_FRAMES[(address, bus)])
+    if counter is None:
+      counter = self._counters[address]
+    self._counters[address] = (counter + 1) & 0xF
+    if address == 0x03E:
+      for offset in range(0, 40, 8):
+        data[offset + 1] = (data[offset + 1] & 0xF0) | counter
+      if "brake" in fields:
+        data[27] = (data[27] & ~(1 << 4)) | (int(fields["brake"]) << 4)
+      if "engine_gas" in fields:
+        data[22:24] = int(fields["engine_gas"]).to_bytes(2, "big")
+      for offset in range(0, 40, 8):
+        data[offset] = _j1850(data[offset + 1:offset + 8])
+    elif address == 0x316:
+      for key, index in (("fr", 0), ("fl", 2)):
+        if key in fields:
+          data[index:index + 2] = (int(fields[key]) & 0xFFFF).to_bytes(2, "big")
+      data[6] = (data[6] & 0xF0) | counter
+      data[7] = _checksum(address, data)
+    elif address == 0x1D3:
+      if "angle_raw" in fields:
+        raw = int(fields["angle_raw"]) & 0x3FFF
+        data[0] = raw >> 6
+        data[1] = (data[1] & 0x03) | ((raw & 0x3F) << 2)
+      data[6] = (data[6] & 0xF0) | counter
+      data[7] = _checksum(address, data)
+    elif address == 0x394:
+      if "torque_raw" in fields:
+        raw = int(fields["torque_raw"]) & 0xFFF
+        data[0] = raw >> 4
+        data[1] = (data[1] & 0x0F) | ((raw & 0xF) << 4)
+      data[6] = (data[6] & 0xF0) | counter
+      data[7] = _checksum(address, data)
+    elif address == 0x3A2:
+      if "state" in fields:
+        data[1] = (data[1] & 0xFC) | int(fields["state"])
+      if "acc_gas" in fields:
+        data[5] = (data[5] & 0x7F) | (int(fields["acc_gas"]) << 7)
+      data[6] = (data[6] & 0xF0) | counter
+      data[7] = _checksum(address, data)
+    elif address == 0x3A5:
+      if "active" in fields:
+        data[2] = (data[2] & ~(1 << 4)) | (int(fields["active"]) << 4)
+      if "aeb" in fields:
+        data[5] = (data[5] & ~(1 << 6)) | (int(fields["aeb"]) << 6)
+      data[6] = (data[6] & 0xF0) | counter
+      data[7] = _checksum(address, data)
+    return libsafety_py.make_CANPacket(address, bus, data)
+
+  def _rx_field(self, address, **fields):
+    return self._rx(self._packet(address, RX_LAYOUT[address][0], **fields))
+
+  def _engage(self):
+    self._rx_field(0x3A2, state=2)
+    self._rx_field(0x3A5, active=1)
+    self.assertTrue(self.safety.get_controls_allowed())
+
+  def _disengage(self):
+    self._rx_field(0x3A5, active=0)
+    self.assertFalse(self.safety.get_controls_allowed())
 
   def test_registration_and_exact_rx_layout(self):
     self.assertEqual(self.safety.get_current_safety_mode(), SAFETY_CHERY)
@@ -203,3 +267,135 @@ class TestCherySafety(SafetyTest):
   def test_tx_denied_and_forwarding_disabled(self):
     self.assertFalse(self.safety.safety_tx_hook(make_msg(0, 0x345)))
     self.assertEqual(self.safety.safety_fwd_hook(0, 0x123), -1)
+
+  def test_acc_authorization_arrival_orders_and_states(self):
+    for first, second in ((0x3A2, 0x3A5), (0x3A5, 0x3A2)):
+      self.setUp()
+      self._rx_field(first, state=2) if first == 0x3A2 else self._rx_field(first, active=1)
+      self.assertFalse(self.safety.get_controls_allowed())
+      self._rx_field(second, state=2) if second == 0x3A2 else self._rx_field(second, active=1)
+      self.assertTrue(self.safety.get_controls_allowed())
+    for state in (0, 1):
+      self.setUp()
+      self._rx_field(0x3A2, state=state)
+      self._rx_field(0x3A5, active=1)
+      self.assertFalse(self.safety.get_controls_allowed())
+    self.setUp()
+    self._rx_field(0x3A2, state=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+    self._rx_field(0x3A5, active=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+    self.setUp()
+    self._rx_field(0x3A5, active=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+    self._rx_field(0x3A2, state=3)
+    self.assertTrue(self.safety.get_controls_allowed())
+
+  def test_reinit_clears_chery_authorization_and_inhibitor_state(self):
+    self._engage()
+    self._rx_field(0x03E, brake=1, engine_gas=11)
+    self._rx_field(0x3A5, aeb=1, active=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+    self.setUp()
+    self._rx_field(0x3A5, active=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+
+  def test_acc_off_requires_new_authorization_cycle(self):
+    self._engage()
+    self._disengage()
+    self._rx_field(0x3A2, state=2)
+    self._rx_field(0x3A5, active=1)
+    self.assertTrue(self.safety.get_controls_allowed())
+
+  def test_each_inhibitor_revokes_and_stays_revoked(self):
+    for field, address, value in (("brake", 0x03E, 1), ("engine_gas", 0x03E, 11),
+                                   ("acc_gas", 0x3A2, 1), ("aeb", 0x3A5, 1)):
+      for speed in (0, 100) if field == "brake" else (100,):
+        self.setUp()
+        self._rx_field(0x316, fr=speed, fl=speed)
+        self._rx_field(address, **{field: value})
+        self._rx_field(0x3A2, state=2, acc_gas=value if field == "acc_gas" else 0)
+        self._rx_field(0x3A5, active=1, aeb=value if field == "aeb" else 0)
+        self.assertFalse(self.safety.get_controls_allowed())
+        release = {field: 0}
+        if field == "aeb":
+          release["active"] = 1
+        self._rx_field(address, **release)
+        self._rx_field(0x3A5, active=1, aeb=0)
+        self.assertFalse(self.safety.get_controls_allowed())
+        self._rx_field(0x03E, brake=0, engine_gas=0)
+        self._rx_field(0x3A2, acc_gas=0)
+        self._rx_field(0x3A5, active=0)
+        self._rx_field(0x3A2, state=2)
+        self._rx_field(0x3A5, active=1)
+        self.assertTrue(self.safety.get_controls_allowed())
+
+  def test_gas_sources_are_or_interleaved(self):
+    self._rx_field(0x03E, engine_gas=11)
+    self.assertTrue(self.safety.get_gas_pressed_prev())
+    self._rx_field(0x3A2, acc_gas=0)
+    self.assertTrue(self.safety.get_gas_pressed_prev())
+    self._rx_field(0x3A2, acc_gas=1)
+    self._rx_field(0x03E, engine_gas=0)
+    self.assertTrue(self.safety.get_gas_pressed_prev())
+    self._rx_field(0x3A2, acc_gas=0)
+    self.assertFalse(self.safety.get_gas_pressed_prev())
+
+  def test_invalid_integrity_and_counter_revoke_engaged_controls(self):
+    self._engage()
+    bad = self._packet(0x3A5, 2)
+    bad.data[7] ^= 1
+    self.assertFalse(self._rx(bad))
+    self.assertFalse(self.safety.get_controls_allowed())
+    self.assertFalse(self.safety.get_controls_allowed_lateral())
+    self._rx_field(0x3A5, active=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+
+    self.setUp()
+    self._engage()
+    for _ in range(MAX_WRONG_COUNTERS):
+      self.assertTrue(self._rx(self._packet(0x3A5, 2, counter=1)))
+    self.assertFalse(self._rx(self._packet(0x3A5, 2, counter=1)))
+    self.assertFalse(self.safety.get_controls_allowed())
+    self.assertFalse(self.safety.get_controls_allowed_lateral())
+
+  def test_engagement_revoked_when_rx_config_times_out(self):
+    self._engage()
+    self._seed_all()
+    self.assertTrue(self.safety.safety_config_valid())
+    self.safety.set_timer(2_000_001)
+    self.safety.safety_tick_current_safety_config()
+    self.assertFalse(self.safety.safety_config_valid())
+    self.assertFalse(self.safety.get_controls_allowed())
+    self.assertFalse(self.safety.get_controls_allowed_lateral())
+
+  def test_signal_extraction_boundaries(self):
+    for raw, expected in ((0, -78000), (16383, 85830)):
+      for _ in range(6):
+        self._rx_field(0x1D3, angle_raw=raw)
+      self.assertEqual(self.safety.get_angle_meas_min(), expected)
+      self.assertEqual(self.safety.get_angle_meas_max(), expected)
+    for raw, expected in ((0x800, -2048), (0xFFF, -1), (0, 0), (0x7FF, 2047)):
+      for _ in range(6):
+        self._rx_field(0x394, torque_raw=raw)
+      self.assertEqual(self.safety.get_torque_driver_min(), expected)
+      self.assertEqual(self.safety.get_torque_driver_max(), expected)
+    self._rx_field(0x316, fr=0, fl=0)
+    self.assertFalse(self.safety.get_vehicle_moving())
+    self._rx_field(0x316, fr=100, fl=100)
+    self.assertTrue(self.safety.get_vehicle_moving())
+    self.assertGreater(self.safety.get_vehicle_speed_max(), 0)
+    self._rx_field(0x316, fr=-1, fl=100)
+    self.assertFalse(self.safety.get_controls_allowed())
+    self.assertFalse(self.safety.get_controls_allowed_lateral())
+    for gas, expected in ((10, False), (11, True)):
+      self.setUp()
+      self._rx_field(0x03E, engine_gas=gas)
+      self.assertEqual(self.safety.get_gas_pressed_prev(), expected)
+    self.setUp()
+    self._rx_field(0x03E, brake=0)
+    self._rx_field(0x03E, brake=0)
+    self.assertFalse(self.safety.get_brake_pressed_prev())
+    self._rx_field(0x03E, brake=1)
+    self._rx_field(0x03E, brake=1)
+    self.assertTrue(self.safety.get_brake_pressed_prev())

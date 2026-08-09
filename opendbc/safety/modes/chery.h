@@ -7,6 +7,7 @@ static bool chery_acc_active = false;
 static bool chery_stock_aeb = false;
 static bool chery_engine_gas = false;
 static bool chery_acc_gas = false;
+static bool chery_inhibited = false;
 
 static void chery_update_gas(void) {
   gas_pressed = chery_engine_gas || chery_acc_gas;
@@ -14,14 +15,16 @@ static void chery_update_gas(void) {
 
 static void chery_apply_inhibitors(void) {
   if (brake_pressed || gas_pressed || chery_stock_aeb) {
+    chery_inhibited = true;
     controls_allowed = false;
   }
 }
 
 static void chery_rx_hook(const CANPacket_t *msg) {
   if (msg->addr == 0x316U) {
-    const int front_left = to_signed((msg->data[0] << 8U) | msg->data[1], 16);
-    const int front_right = to_signed((msg->data[2] << 8U) | msg->data[3], 16);
+    // DBC order is FR (bytes 0-1), FL (bytes 2-3).
+    const int front_right = to_signed((msg->data[0] << 8U) | msg->data[1], 16);
+    const int front_left = to_signed((msg->data[2] << 8U) | msg->data[3], 16);
     if ((front_left < 0) || (front_right < 0)) {
       controls_allowed = false;
       mads_exit_controls(MADS_DISENGAGE_REASON_INVALID_RX);
@@ -43,11 +46,14 @@ static void chery_rx_hook(const CANPacket_t *msg) {
     const uint8_t state = msg->data[1] & 0x03U;
     chery_acc_available = (state == 2U) || (state == 3U);
     chery_acc_gas = GET_BIT(msg, 47U);
-    pcm_cruise_check(chery_acc_available && chery_acc_active);
+    pcm_cruise_check(chery_acc_available && chery_acc_active && !chery_inhibited);
   } else if (msg->addr == 0x3A5U) {
     chery_acc_active = GET_BIT(msg, 20U);
     chery_stock_aeb = GET_BIT(msg, 46U);
-    pcm_cruise_check(chery_acc_available && chery_acc_active);
+    if (!chery_acc_active) {
+      chery_inhibited = false;
+    }
+    pcm_cruise_check(chery_acc_available && chery_acc_active && !chery_inhibited);
   }
   chery_update_gas();
   chery_apply_inhibitors();
@@ -117,6 +123,7 @@ static safety_config chery_init(uint16_t param) {
   chery_stock_aeb = false;
   chery_engine_gas = false;
   chery_acc_gas = false;
+  chery_inhibited = false;
   gas_pressed = false;
   brake_pressed = false;
   static RxCheck chery_rx_checks[] = {

@@ -20,7 +20,7 @@ class TestBuild(unittest.TestCase):
     packet[0].data_len_code = 8
     packet[0].data = b'\0' * 8
     self.assertFalse(safety.safety_tx_hook(packet))
-    self.assertEqual(safety.safety_fwd_hook(0, 0x123), -1)
+    self.assertEqual(safety.safety_fwd_hook(0, 0x123), 2)
 
 
 if __name__ == "__main__":

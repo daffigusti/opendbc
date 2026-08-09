@@ -1,4 +1,4 @@
-from opendbc.safety.tests.common import MAX_WRONG_COUNTERS, SafetyTest, make_msg
+from opendbc.safety.tests.common import CANPackerSafety, MAX_WRONG_COUNTERS, SafetyTest, make_msg
 from opendbc.safety.tests.libsafety import libsafety_py
 
 
@@ -38,8 +38,9 @@ def _checksum(address, data):
 
 class TestCherySafety(SafetyTest):
   TX_MSGS = [[0x345, 0]]
-  FWD_BUS_LOOKUP = {}
-  FWD_BLACKLISTED_ADDRS = {}
+  FWD_BUS_LOOKUP = {0: 2, 2: 0}
+  FWD_BLACKLISTED_ADDRS = {2: [0x345]}
+  RELAY_MALFUNCTION_ADDRS = {0: (0x345,)}
 
   @classmethod
   def setUpClass(cls):
@@ -49,6 +50,33 @@ class TestCherySafety(SafetyTest):
     self.assertEqual(self.safety.set_safety_hooks(SAFETY_CHERY, 0), 0)
     self.safety.init_tests()
     self._counters = {address: 0 for address in RX_LAYOUT}
+    self._timer = 0
+    self.packer = CANPackerSafety("chery_canfd")
+
+  def _angle_cmd_msg(self, angle, enabled, bus=0, length=8, timer=True):
+    # LKAS_CAM_CMD_345 CMD is signed 13-bit in raw CAN units. Keeping this
+    # conversion here makes boundary tests independent of controller code.
+    address, data, _ = self.packer.make_can_msg("LKAS_CAM_CMD_345", bus, {
+      "CMD": round(angle * 10 - 392), "LKA_ACTIVE": int(enabled),
+    })
+    if timer:
+      self._timer += 20_000
+      self.safety.set_timer(self._timer)
+    payload = data[:length] if length <= 8 else data + bytes(length - 8)
+    return libsafety_py.make_CANPacket(address, bus, payload)
+
+  def _angle_meas_msg(self, angle, bus=0, length=8):
+    return self._packet(0x1D3, bus, angle_raw=round((angle + 780) * 10)) if length == 8 else \
+      libsafety_py.make_CANPacket(0x1D3, bus, GOLDEN_FRAMES[(0x1D3, 0)][:length])
+
+  def _reset_angle_samples(self, angle):
+    for _ in range(6):
+      self._rx(self._angle_meas_msg(angle))
+
+  def _reset_speed_samples(self, speed):
+    raw = round(speed * 3.6 / 0.00829)
+    for _ in range(6):
+      self._rx(self._packet(0x316, 0, fr=raw, fl=raw))
 
   def _golden(self, address, bus):
     return libsafety_py.make_CANPacket(address, bus, GOLDEN_FRAMES[(address, bus)])
@@ -281,6 +309,7 @@ class TestCherySafety(SafetyTest):
 
   def test_tx_denied_and_forwarding_disabled(self):
     self.assertFalse(self.safety.safety_tx_hook(make_msg(0, 0x360)))
+    self.assertFalse(self.safety.safety_tx_hook(make_msg(0, 0x360, 8)))
     self.assertEqual(self.safety.safety_fwd_hook(0, 0x345), 2)
     self.assertEqual(self.safety.safety_fwd_hook(2, 0x345), -1)
     self.assertEqual(self.safety.safety_fwd_hook(0, 0x360), 2)
@@ -288,6 +317,81 @@ class TestCherySafety(SafetyTest):
     self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), 0)
     self.assertEqual(self.safety.safety_fwd_hook(1, 0x345), -1)
     self.assertEqual(self.safety.safety_fwd_hook(3, 0x345), -1)
+
+  def test_angle_command_signed13_boundaries_and_message_shape(self):
+    self.safety.set_controls_allowed(True)
+    for angle in (-150.1, -150.0, 150.0, 150.1):
+      raw = round(angle * 10 - 392)
+      self.safety.set_desired_angle_last(raw)
+      allowed = abs(angle) <= 150.0
+      self.assertEqual(allowed, self._tx(self._angle_cmd_msg(angle, True)))
+
+    # Sign bit and positive/negative edge encodings must not alias.
+    for raw in (0x0FFF, 0x1000, 0x1FFF):
+      self.setUp()
+      for _ in range(6):
+        self._rx(self._packet(0x1D3, 0, angle_raw=raw))
+      expected = raw * 10 - 78000
+      self.assertEqual(self.safety.get_angle_meas_min(), expected)
+      self.assertEqual(self.safety.get_angle_meas_max(), expected)
+
+    self.assertFalse(self._tx(self._angle_cmd_msg(0, False, bus=2)))
+    self.assertFalse(self._tx(self._angle_cmd_msg(0, False, length=7)))
+
+  def test_inactive_angle_requires_exact_measured_command_and_range(self):
+    self.safety.set_controls_allowed(False)
+    for measured in (39.2, 39.3, 150.1, 370.0):
+      self._reset_angle_samples(measured)
+      self.assertTrue(self._tx(self._angle_cmd_msg(measured, False)))
+      self.assertFalse(self._tx(self._angle_cmd_msg(measured + 0.1, False)))
+    self._reset_angle_samples(370.4)
+    self.assertTrue(self._tx(self._angle_cmd_msg(370.4, False)))
+    self.assertFalse(self._tx(self._angle_cmd_msg(370.5, False)))
+
+  def test_speed_measurement_representable_range(self):
+    for speed in (0, 1, 5, 10, 15, 30, 50, 75):
+      self._reset_speed_samples(speed)
+      self.assertGreaterEqual(self.safety.get_vehicle_speed_max(), 0)
+      self.assertLessEqual(self.safety.get_vehicle_speed_max(), 75.1 if speed == 75 else speed + 1)
+
+  def test_active_commands_require_controls_and_safe_boundary_is_accepted(self):
+    for enabled, controls in ((True, False), (True, True), (False, False), (False, True)):
+      self.safety.set_controls_allowed(controls)
+      self.safety.set_desired_angle_last(0)
+      result = self._tx(self._angle_cmd_msg(0, enabled))
+      self.assertEqual(result, controls or not enabled)
+
+  def test_every_non_steering_tx_and_wrong_dlc_is_rejected(self):
+    self.safety.set_controls_allowed(True)
+    for addr in (0x03E, 0x1D3, 0x316, 0x394, 0x3A2, 0x3A5, 0x360, 0x3A2):
+      self.assertFalse(self._tx(make_msg(0, addr, 8)))
+    for length in (0, 1, 2, 4, 7):
+      self.assertFalse(self._tx(self._angle_cmd_msg(0, False, length=length)))
+
+  def test_forwarding_routes_and_relay_protection(self):
+    for addr, source, destination in (
+      (0x345, 0, 2), (0x3A2, 2, 0), (0x360, 0, 2), (0x3A2, 0, 2),
+    ):
+      self.assertEqual(destination, self.safety.safety_fwd_hook(source, addr))
+    self.assertEqual(-1, self.safety.safety_fwd_hook(2, 0x345))
+    for bus in (1, 3):
+      self.assertEqual(-1, self.safety.safety_fwd_hook(bus, 0x345))
+
+    self.safety.set_relay_malfunction(True)
+    for bus in range(4):
+      self.assertFalse(self._tx(make_msg(bus, 0x345, 8)))
+      self.assertEqual(-1, self.safety.safety_fwd_hook(bus, 0x345))
+
+  def test_acc_mads_authorization_stays_lateral_until_unavailable(self):
+    self._engage()
+    self.safety.set_controls_allowed_lateral(True)
+    for address, (bus, _dlc, _frequency) in RX_LAYOUT.items():
+      if address not in (0x3A2, 0x3A5):
+        self._rx(self._packet(address, bus))
+        self.assertTrue(self.safety.get_controls_allowed_lateral())
+
+    self._rx_field(0x3A2, state=0)
+    self.assertFalse(self.safety.get_controls_allowed_lateral())
 
   def test_acc_authorization_arrival_orders_and_states(self):
     for first, second in ((0x3A2, 0x3A5), (0x3A5, 0x3A2)):

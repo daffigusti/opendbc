@@ -128,9 +128,9 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
 }
 
 static bool chery_fwd_hook(int bus_num, int addr) {
-  SAFETY_UNUSED(bus_num);
-  SAFETY_UNUSED(addr);
-  return false;
+  // Generic safety forwarding supplies bus 0 <-> 2. Only block the camera
+  // copy of our relay-monitored steering command.
+  return (bus_num == 2) && (addr == 0x345U);
 }
 
 static uint32_t chery_get_checksum(const CANPacket_t *msg) {

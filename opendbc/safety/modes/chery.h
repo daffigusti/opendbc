@@ -180,7 +180,7 @@ static bool chery_fwd_hook(int bus_num, int addr) {
   if (bus_num == 2 && addr == 0x3A2U) {
     // Base mode always forwards. LONG_CONTROL blocks OEM ACC only after all
     // RX health checks are trusted; otherwise preserve OEM authority.
-    return (!chery_longitudinal || !chery_health_ready()) ? 0 : -1;
+    return chery_longitudinal && chery_health_ready();
   }
   // Let stock steering pass through only when the measured rack angle is
   // outside the representable command range. Within range, block stock

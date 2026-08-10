@@ -349,6 +349,11 @@ class TestCherySafety(SafetyTest):
     self.assertFalse(self._tx(self._acc_cmd_msg(-24)))
     self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), 0)
     self._enable_longitudinal()
+    # LONG_CONTROL stays fail-closed until all RX health checks complete.
+    self.assertFalse(self._tx(self._acc_cmd_msg(-24)))
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), 0)
+    self._seed_all()
+    self._validate_config()
     self.safety.set_controls_allowed(True)
     for command in (-511, 0, 511):
       self.assertTrue(self._tx(self._acc_cmd_msg(command)), command)
@@ -359,8 +364,56 @@ class TestCherySafety(SafetyTest):
     self.assertFalse(self._tx(self._acc_cmd_msg(-512)))
     self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), -1)
 
+  def test_longitudinal_oem_passthrough_when_rx_health_untrusted(self):
+    self._enable_longitudinal()
+    self.assertFalse(self._tx(self._acc_cmd_msg(-24)))
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), 0)
+
+    self._seed_all()
+    self._validate_config()
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), -1)
+    self.safety.set_controls_allowed(False)
+    self.assertTrue(self._tx(self._acc_cmd_msg(-24)))
+
+    bad = self._packet(0x3A5, 2)
+    bad.data[7] ^= 1
+    self.assertFalse(self._rx(bad))
+    self.assertFalse(self._tx(self._acc_cmd_msg(-24)))
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), 0)
+
+    self._recover_rx_without_acc_off()
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), -1)
+    self.assertTrue(self._tx(self._acc_cmd_msg(-24)))
+
+    repeated = self._packet(0x3A5, 2, counter=1)
+    for _ in range(MAX_WRONG_COUNTERS - 1):
+      self.assertTrue(self._rx(repeated))
+    self.assertFalse(self._rx(repeated))
+    self.assertFalse(self._tx(self._acc_cmd_msg(-24)))
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), 0)
+    self._recover_rx_without_acc_off()
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), -1)
+
+    self.safety.set_timer(2_000_001)
+    self.safety.safety_tick_current_safety_config()
+    self.assertFalse(self._tx(self._acc_cmd_msg(-24)))
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), 0)
+    self._seed_all()
+    self._validate_config()
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), -1)
+    self.assertTrue(self._tx(self._acc_cmd_msg(-24)))
+
+    self._rx_field(0x3A2, state=0)
+    self._rx_field(0x3A2, state=2)
+    self._rx_field(0x3A5, active=0)
+    self._rx_field(0x3A5, active=1)
+    self.safety.set_controls_allowed(False)
+    self.assertTrue(self._tx(self._acc_cmd_msg(-24)))
+
   def test_longitudinal_accel_on_and_gas_pressed_contract(self):
     self._enable_longitudinal()
+    self._seed_all()
+    self._validate_config()
     self.safety.set_controls_allowed(True)
     self.assertFalse(self._tx(self._acc_cmd_msg(511, accel_on=0)))
     self.assertFalse(self._tx(self._acc_cmd_msg(-24, accel_on=1)))
@@ -374,12 +427,13 @@ class TestCherySafety(SafetyTest):
                            ("acc_gas", 0x3A2), ("aeb", 0x3A5)):
       self.setUp()
       self._enable_longitudinal()
+      self._seed_all()
+      self._validate_config()
       value = 11 if field == "engine_gas" else 1
       self._rx_field(address, **{field: value})
       self.safety.set_controls_allowed(True)
       self.assertFalse(self._tx(self._acc_cmd_msg(511)), field)
-      inactive_allowed = field != "aeb"
-      self.assertEqual(inactive_allowed, self._tx(self._acc_cmd_msg(-24)), field)
+      self.assertFalse(self._tx(self._acc_cmd_msg(-24)), field)
     self.setUp()
     self._enable_longitudinal()
     self.safety.set_controls_allowed(True)
@@ -388,6 +442,8 @@ class TestCherySafety(SafetyTest):
 
   def test_stock_aeb_rejects_all_host_acc_and_restores_oem_forwarding(self):
     self._enable_longitudinal()
+    self._seed_all()
+    self._validate_config()
     self._rx_field(0x3A5, aeb=1, active=1)
     self.safety.set_controls_allowed(True)
     self.assertFalse(self._tx(self._acc_cmd_msg(-24)))

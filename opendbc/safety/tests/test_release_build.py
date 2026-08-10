@@ -39,13 +39,14 @@ class TestBuild(unittest.TestCase):
     safety = ffi.dlopen(path)
     safety.set_safety_hooks(35, 1)
     safety.set_controls_allowed(True)
-    self.assertTrue(safety.safety_tx_hook(self._acc_packet(ffi, -511)))
-    self.assertTrue(safety.safety_tx_hook(self._acc_packet(ffi, 511)))
+    # LONG_CONTROL must remain fail-closed until RX health is trusted.
+    self.assertFalse(safety.safety_tx_hook(self._acc_packet(ffi, -511)))
+    self.assertFalse(safety.safety_tx_hook(self._acc_packet(ffi, 511)))
     safety.set_controls_allowed(False)
-    self.assertTrue(safety.safety_tx_hook(self._acc_packet(ffi, -24)))
+    self.assertFalse(safety.safety_tx_hook(self._acc_packet(ffi, -24)))
     self.assertFalse(safety.safety_tx_hook(self._acc_packet(ffi, -511)))
     self.assertFalse(safety.safety_tx_hook(self._acc_packet(ffi, -24, 1)))
-    self.assertEqual(safety.safety_fwd_hook(2, 0x3A2), -1)
+    self.assertEqual(safety.safety_fwd_hook(2, 0x3A2), 0)
 
     safety.set_safety_hooks(35, 0)
     self.assertFalse(safety.safety_tx_hook(self._acc_packet(ffi, -24)))

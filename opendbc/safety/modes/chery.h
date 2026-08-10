@@ -110,6 +110,11 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
   };
 
   if (msg->addr == 0x3A2U) {
+    // Never allow host ACC traffic while RX health is untrusted. This keeps
+    // startup, integrity faults, timeouts, and inhibitors fail-closed.
+    if (!chery_health_ready()) {
+      return false;
+    }
     if (!chery_longitudinal || msg->bus != 0U || GET_LEN(msg) != 8U) {
       return false;
     }
@@ -173,11 +178,9 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
 
 static bool chery_fwd_hook(int bus_num, int addr) {
   if (bus_num == 2 && addr == 0x3A2U) {
-    // Preserve OEM AEB passthrough so stock system retains emergency braking authority.
-    if (chery_stock_aeb) {
-      return 0;
-    }
-    return chery_longitudinal;
+    // Base mode always forwards. LONG_CONTROL blocks OEM ACC only after all
+    // RX health checks are trusted; otherwise preserve OEM authority.
+    return (!chery_longitudinal || !chery_health_ready()) ? 0 : -1;
   }
   // Let stock steering pass through only when the measured rack angle is
   // outside the representable command range. Within range, block stock

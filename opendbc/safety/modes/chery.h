@@ -5,8 +5,8 @@
 static bool chery_acc_available = false;
 static bool chery_acc_active = false;
 static bool chery_stock_aeb = false;
-static bool chery_engine_gas = false;
 static bool chery_acc_gas = false;
+static bool chery_acc_stopped = false;
 static bool chery_inhibited = false;
 static bool chery_sensor_invalid = false;
 static bool chery_longitudinal = false;
@@ -23,11 +23,19 @@ static bool chery_health_ready(void) {
   return (chery_rx_seen_mask == 0x3FU) && !safety_rx_checks_invalid && !chery_sensor_invalid && !chery_inhibited;
 }
 
+// The stock ACC drops ACC_ACTIVE while it holds the car at standstill, then ignores ACC_CMD gas
+// until a RES+ press. STOPPED keeps an existing engagement alive across that window. Requiring
+// cruise_engaged_prev means STOPPED can never engage controls on its own, and ACC_STATE leaving
+// the available range still tears the engagement down.
+static bool chery_cruise_engaged(void) {
+  return chery_acc_active || (chery_acc_stopped && cruise_engaged_prev);
+}
+
 static void chery_pcm_cruise_check(void) {
-  if (!chery_acc_active) {
+  if (!chery_cruise_engaged()) {
     chery_reauth_required = false;
     pcm_cruise_check(false);
-  } else if (!(chery_acc_available && chery_acc_active)) {
+  } else if (!chery_acc_available) {
     // ACC state becoming unavailable is not an explicit physical disengagement.
     pcm_cruise_check(false);
   } else if (!chery_health_ready()) {
@@ -38,12 +46,20 @@ static void chery_pcm_cruise_check(void) {
 }
 
 static void chery_update_gas(void) {
-  gas_pressed = chery_engine_gas || chery_acc_gas;
+  // ENGINE_DATA.GAS is a drivetrain torque request, not pedal travel: across 943k moving frames
+  // its distribution under ACC and under the driver is indistinguishable (38.8% vs 51.9% at
+  // zero, both saturating above 26000), so no threshold on it separates the two. Reading it as
+  // a driver press denied controls in 98%+ of ACC-engaged frames while protecting against
+  // nothing. Only the camera's own driver-pedal bit is trusted. See KNOWN_GAPS.md.
+  gas_pressed = chery_acc_gas;
 }
 
 static void chery_apply_inhibitors(void) {
-  if (brake_pressed || gas_pressed || chery_stock_aeb) {
-    chery_inhibited = true;
+  // A live condition, not a latch. The previous version cleared only when ACC_ACTIVE dropped, so
+  // a single brake tap during a standstill hold -- where ACC_ACTIVE is already 0 and the
+  // engagement is held alive by STOPPED -- blocked every transmission until the ACC was cycled.
+  chery_inhibited = brake_pressed || gas_pressed || chery_stock_aeb;
+  if (chery_inhibited) {
     controls_allowed = false;
   }
 }
@@ -77,20 +93,16 @@ static void chery_rx_hook(const CANPacket_t *msg) {
     update_sample(&torque_driver, to_signed(raw, 12));
   } else if (msg->addr == 0x03EU) {
     brake_pressed = GET_BIT(msg, 220U);
-    const uint16_t engine_gas = (uint16_t)((msg->data[22] << 8U) | msg->data[23]);
-    chery_engine_gas = engine_gas > 10U;
   } else if (msg->addr == 0x3A2U) {
     const uint8_t state = msg->data[1] & 0x03U;
     chery_acc_available = (state == 2U) || (state == 3U);
     acc_main_on = chery_acc_available;
     chery_acc_gas = GET_BIT(msg, 47U);
+    chery_acc_stopped = GET_BIT(msg, 10U);
     chery_pcm_cruise_check();
   } else if (msg->addr == 0x3A5U) {
     chery_acc_active = GET_BIT(msg, 20U);
     chery_stock_aeb = GET_BIT(msg, 46U);
-    if (!chery_acc_active) {
-      chery_inhibited = false;
-    }
     chery_pcm_cruise_check();
   }
   chery_update_gas();
@@ -105,7 +117,7 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
   };
   static const AngleSteeringParams CHERY_STEERING_PARAMS = {
     .slip_factor = -0.000637749883,
-    .steer_ratio = 17.5,
+    .steer_ratio = 14.0,
     .wheelbase = 2.63,
   };
 
@@ -125,7 +137,17 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
     const bool accel_on = GET_BIT(msg, 7U);
     const bool gas_pressed_cmd = GET_BIT(msg, 47U);
     const uint8_t aeb_req_stop = (msg->data[6] >> 4U) & 0x0FU;
-    if (aeb_req_stop != 0U || command < -511 || command > 511 || accel_on != (command >= 0)) {
+    // CMD is a magnitude and ACCEL_ON its direction. Stock holds a stopped car with CMD=400,
+    // ACCEL_ON=0, STOPPED=1, ACC_STATE=2 -- its maximum brake request. That pair is the one
+    // exception to the sign agreement, and only while the car is already stopped: sent while
+    // rolling it is a full-force brake application.
+    const bool stopped_cmd = GET_BIT(msg, 10U);
+    const bool state_holding = (msg->data[1] & 0x03U) == 2U;
+    const bool full_stop_hold = (command == 400) && !accel_on && stopped_cmd && state_holding && !vehicle_moving;
+    if (aeb_req_stop != 0U || command < -511 || command > 511) {
+      return false;
+    }
+    if ((accel_on != (command >= 0)) && !full_stop_hold) {
       return false;
     }
     if (chery_stock_aeb) {
@@ -138,6 +160,24 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
       return false;
     }
     return true;
+  }
+
+  if (msg->addr == 0x360U) {
+    // Resume taps only. RES+ doubles as "raise set speed" while the ACC is active, so this is
+    // confined to a stopped car with controls already authorized, and no other button bit may
+    // be asserted.
+    if (!chery_health_ready() || msg->bus != 2U || GET_LEN(msg) != 6U) {
+      return false;
+    }
+    const bool other_buttons = GET_BIT(msg, 24U) || GET_BIT(msg, 26U) || GET_BIT(msg, 32U) ||
+                               GET_BIT(msg, 43U) || GET_BIT(msg, 45U);
+    return controls_allowed && !vehicle_moving && !other_buttons;
+  }
+
+  if (msg->addr == 0x307U) {
+    // LKAS_STATE is the cluster's lane-keep indicator. It actuates nothing, but the stock copy
+    // is blocked from forwarding, so openpilot has to be able to relay it.
+    return chery_health_ready() && (msg->bus == 0U) && (GET_LEN(msg) == 8U);
   }
 
   if (msg->addr != 0x345U || GET_LEN(msg) != 8U || msg->bus != 0U) {
@@ -181,6 +221,11 @@ static bool chery_fwd_hook(int bus_num, int addr) {
     // Base mode always forwards. LONG_CONTROL blocks OEM ACC only after all
     // RX health checks are trusted; otherwise preserve OEM authority.
     return chery_longitudinal && chery_health_ready();
+  }
+  if ((bus_num == 2) && (addr == 0x307U)) {
+    // openpilot re-emits LKAS_STATE every 50ms -- its own while steering, the camera's verbatim
+    // otherwise -- so the camera's copy must not also reach the cluster.
+    return chery_health_ready();
   }
   // Let stock steering pass through only when the measured rack angle is
   // outside the representable command range. Within range, block stock
@@ -240,8 +285,8 @@ static safety_config chery_init(uint16_t param) {
   acc_main_on = false;
   chery_acc_active = false;
   chery_stock_aeb = false;
-  chery_engine_gas = false;
   chery_acc_gas = false;
+  chery_acc_stopped = false;
   chery_inhibited = false;
   chery_sensor_invalid = false;
   chery_current_angle_deg100 = 0;
@@ -260,8 +305,12 @@ static safety_config chery_init(uint16_t param) {
     {.msg = {{0x3A2, 2, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
     {.msg = {{0x3A5, 2, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
   };
-  static const CanMsg chery_tx_msgs[] = {{0x345, 0, 8, .check_relay = true, .disable_static_blocking = true}};
+  static const CanMsg chery_tx_msgs[] = {{0x345, 0, 8, .check_relay = true, .disable_static_blocking = true},
+                                         {0x307, 0, 8, .check_relay = true, .disable_static_blocking = true},
+                                         {0x360, 2, 6, .check_relay = false, .disable_static_blocking = true}};
   static const CanMsg chery_long_tx_msgs[] = {{0x345, 0, 8, .check_relay = true, .disable_static_blocking = true},
+                                              {0x307, 0, 8, .check_relay = true, .disable_static_blocking = true},
+                                              {0x360, 2, 6, .check_relay = false, .disable_static_blocking = true},
                                               {0x3A2, 0, 8, .check_relay = true, .disable_static_blocking = true}};
   safety_config config = {
     .rx_checks = chery_rx_checks,

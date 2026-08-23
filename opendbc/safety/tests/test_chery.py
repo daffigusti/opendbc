@@ -45,10 +45,12 @@ def _checksum(address, data):
 
 
 class TestCherySafety(SafetyTest):
-  TX_MSGS = [[0x345, 0]]
+  TX_MSGS = [[0x345, 0], [0x307, 0], [0x360, 2]]
   FWD_BUS_LOOKUP = {0: 2, 2: 0}
+  # 0x307 and 0x3A2 are blocked only once RX health is trusted, so they are not statically
+  # blacklisted -- see test_hud_forwarding_and_transmission.
   FWD_BLACKLISTED_ADDRS = {2: [0x345]}
-  RELAY_MALFUNCTION_ADDRS = {0: (0x345,)}
+  RELAY_MALFUNCTION_ADDRS = {0: (0x345, 0x307)}
 
   @classmethod
   def setUpClass(cls):
@@ -77,17 +79,41 @@ class TestCherySafety(SafetyTest):
     return self._packet(0x1D3, bus, angle_raw=round((angle + 780) * 10)) if length == 8 else \
       libsafety_py.make_CANPacket(0x1D3, bus, GOLDEN_FRAMES[(0x1D3, 0)][:length])
 
-  def _acc_cmd_msg(self, command, aeb_req_stop=0, accel_on=None, gas_pressed=0):
+  def _acc_cmd_msg(self, command, aeb_req_stop=0, accel_on=None, gas_pressed=0, stopped=0, acc_state=0):
     packer = CANPacker("chery_canfd")
     if accel_on is None:
       accel_on = command >= 0
     address, data, bus = packer.make_can_msg("ACC_CMD", 0, {
       "CMD": command, "ACCEL_ON": accel_on, "GAS_PRESSED": gas_pressed,
-      "AEB_REQ_STOP": aeb_req_stop,
+      "AEB_REQ_STOP": aeb_req_stop, "STOPPED": stopped, "ACC_STATE": acc_state,
     })
     data = bytearray(data)
     data[-1] = calculate_crc(bytes(data[:-1]))
     return libsafety_py.make_CANPacket(address, bus, data)
+
+  def _acc_hold_msg(self, **overrides):
+    fields = {"command": 400, "accel_on": False, "stopped": 1, "acc_state": 2}
+    fields.update(overrides)
+    return self._acc_cmd_msg(**fields)
+
+  def _button_msg(self, bus=2, length=6, **buttons):
+    packer = CANPacker("chery_canfd")
+    values = {name: 0 for name in (
+      "ACC", "CC_BTN", "RES_PLUS", "RES_MINUS", "NEW_SIGNAL_1",
+      "GAP_ADJUST_UP", "GAP_ADJUST_DOWN", "COUNTER",
+    )}
+    values.update(buttons)
+    address, data, _ = packer.make_can_msg("STEER_BUTTON", bus, values)
+    data = bytearray(data)
+    data[0] = calculate_crc(bytes(data[1:]))
+    return libsafety_py.make_CANPacket(address, bus, data[:length])
+
+  def _hud_msg(self, bus=0, length=8, lka_active=1):
+    packer = CANPacker("chery_canfd")
+    address, data, _ = packer.make_can_msg("LKAS_STATE", bus, {"LKA_ACTIVE": lka_active})
+    data = bytearray(data)
+    data[-1] = calculate_crc(bytes(data[:-1]))
+    return libsafety_py.make_CANPacket(address, bus, data[:length])
 
   def _enable_longitudinal(self):
     self.assertEqual(self.safety.set_safety_hooks(SAFETY_CHERY, 1), 0)
@@ -156,6 +182,8 @@ class TestCherySafety(SafetyTest):
         data[1] = (data[1] & 0xFC) | int(fields["state"])
       if "acc_gas" in fields:
         data[5] = (data[5] & 0x7F) | (int(fields["acc_gas"]) << 7)
+      if "stopped" in fields:
+        data[1] = (data[1] & ~(1 << 2)) | (int(fields["stopped"]) << 2)
       data[6] = (data[6] & 0xF0) | counter
       data[7] = _checksum(address, data)
     elif address == 0x3A5:
@@ -423,14 +451,12 @@ class TestCherySafety(SafetyTest):
 
   def test_longitudinal_aeb_and_rx_inhibitors_allow_only_inactive_command(self):
     self._enable_longitudinal()
-    for field, address in (("brake", 0x03E), ("engine_gas", 0x03E),
-                           ("acc_gas", 0x3A2), ("aeb", 0x3A5)):
+    for field, address in (("brake", 0x03E), ("acc_gas", 0x3A2), ("aeb", 0x3A5)):
       self.setUp()
       self._enable_longitudinal()
       self._seed_all()
       self._validate_config()
-      value = 11 if field == "engine_gas" else 1
-      self._rx_field(address, **{field: value})
+      self._rx_field(address, **{field: 1})
       self.safety.set_controls_allowed(True)
       self.assertFalse(self._tx(self._acc_cmd_msg(511)), field)
       self.assertFalse(self._tx(self._acc_cmd_msg(-24)), field)
@@ -571,6 +597,121 @@ class TestCherySafety(SafetyTest):
     for length in (0, 1, 2, 4, 7):
       self.assertFalse(self._tx(self._angle_cmd_msg(0, False, length=length)))
 
+  def test_standstill_hold_keeps_engagement_alive(self):
+    """ACC_ACTIVE drops ~3s into the stock hold; STOPPED is what carries the engagement."""
+    self._engage()
+    self._rx_field(0x3A2, state=2, stopped=1)
+    self._rx_field(0x3A5, active=0)
+    self.assertTrue(self.safety.get_controls_allowed())
+    # RES+ lands, the ACC re-activates, and the hold flag drops behind it.
+    self._rx_field(0x3A5, active=1)
+    self.assertTrue(self.safety.get_controls_allowed())
+    self._rx_field(0x3A2, state=2, stopped=0)
+    self.assertTrue(self.safety.get_controls_allowed())
+    # A real disengagement still tears it down.
+    self._rx_field(0x3A5, active=0)
+    self.assertFalse(self.safety.get_controls_allowed())
+
+  def test_stopped_alone_cannot_engage_controls(self):
+    self._seed_all()
+    self._validate_config()
+    for _ in range(3):
+      self._rx_field(0x3A2, state=2, stopped=1)
+      self._rx_field(0x3A5, active=0)
+      self.assertFalse(self.safety.get_controls_allowed())
+
+  def test_acc_unavailable_clears_a_stopped_held_engagement(self):
+    self._engage()
+    self._rx_field(0x3A2, state=2, stopped=1)
+    self._rx_field(0x3A5, active=0)
+    self.assertTrue(self.safety.get_controls_allowed())
+    self._rx_field(0x3A2, state=1, stopped=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+    # STOPPED must not resurrect it now that cruise_engaged_prev has been cleared.
+    self._rx_field(0x3A2, state=2, stopped=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+
+  def test_inhibitor_releases_with_its_condition(self):
+    """A brake tap must not wedge every transmission until the ACC is power-cycled."""
+    self._enable_longitudinal()
+    self._engage()
+    self._rx_field(0x316, fr=0, fl=0)
+    self.assertTrue(self._tx(self._acc_cmd_msg(-24)))
+    self._rx_field(0x03E, brake=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+    self.assertFalse(self._tx(self._acc_cmd_msg(-24)))
+    self._rx_field(0x03E, brake=0)
+    # Controls still need a fresh engagement, but the transmit path is no longer wedged.
+    self.assertFalse(self.safety.get_controls_allowed())
+    self.assertTrue(self._tx(self._acc_cmd_msg(-24)))
+    self._rx_field(0x3A5, active=0)
+    self._rx_field(0x3A2, state=2)
+    self._rx_field(0x3A5, active=1)
+    self.assertTrue(self.safety.get_controls_allowed())
+
+  def test_full_stop_hold_command_requires_a_stopped_car(self):
+    self._enable_longitudinal()
+    self._engage()
+    self._rx_field(0x316, fr=0, fl=0)
+    self.assertTrue(self._tx(self._acc_hold_msg()))
+    # Every part of the stock hold encoding is required.
+    self.assertFalse(self._tx(self._acc_hold_msg(stopped=0)))
+    self.assertFalse(self._tx(self._acc_hold_msg(acc_state=3)))
+    self.assertFalse(self._tx(self._acc_hold_msg(command=399)))
+    # CMD=400 with ACCEL_ON set is an ordinary positive accel request, not the hold, and is
+    # judged by the normal sign rule.
+    self.assertTrue(self._tx(self._acc_hold_msg(accel_on=True)))
+    # And it is a maximum brake request, so it may never go out while the car is rolling.
+    self._rx_field(0x316, fr=100, fl=100)
+    self.assertFalse(self._tx(self._acc_hold_msg()))
+    # No other positive command gets the sign exemption.
+    self._rx_field(0x316, fr=0, fl=0)
+    for command in (1, 24, 399, 401, 511):
+      self.assertFalse(self._tx(self._acc_cmd_msg(command, accel_on=False, stopped=1, acc_state=2)), command)
+
+  def test_full_stop_hold_command_still_needs_controls_and_no_inhibitor(self):
+    self._enable_longitudinal()
+    self._engage()
+    self._rx_field(0x316, fr=0, fl=0)
+    self._rx_field(0x03E, brake=1)
+    self.assertFalse(self._tx(self._acc_hold_msg()))
+    self._rx_field(0x03E, brake=0)
+    self._rx_field(0x3A2, acc_gas=1)
+    self.assertFalse(self._tx(self._acc_hold_msg()))
+
+  def test_resume_button_transmission_rules(self):
+    self._engage()
+    self._rx_field(0x316, fr=0, fl=0)
+    self.assertTrue(self._tx(self._button_msg(RES_PLUS=1)))
+    self.assertTrue(self._tx(self._button_msg()))
+    # Wrong bus, wrong length.
+    self.assertFalse(self._tx(self._button_msg(bus=0, RES_PLUS=1)))
+    self.assertFalse(self._tx(self._button_msg(length=5, RES_PLUS=1)))
+    # RES+ doubles as "raise set speed", so it is confined to a stopped car.
+    self._rx_field(0x316, fr=100, fl=100)
+    self.assertFalse(self._tx(self._button_msg(RES_PLUS=1)))
+    self._rx_field(0x316, fr=0, fl=0)
+    # No other button may ride along.
+    for button in ("ACC", "CC_BTN", "RES_MINUS", "GAP_ADJUST_UP", "GAP_ADJUST_DOWN"):
+      self.assertFalse(self._tx(self._button_msg(RES_PLUS=1, **{button: 1})), button)
+    self._rx_field(0x3A5, active=0)
+    self.assertFalse(self._tx(self._button_msg(RES_PLUS=1)))
+
+  def test_hud_forwarding_and_transmission(self):
+    # Until RX health is trusted the camera keeps the cluster, and openpilot may not transmit.
+    self.assertFalse(self._tx(self._hud_msg()))
+    self.assertEqual(0, self.safety.safety_fwd_hook(2, 0x307))
+    self._engage()
+    self.assertEqual(-1, self.safety.safety_fwd_hook(2, 0x307))
+    self.assertTrue(self._tx(self._hud_msg()))
+    self.assertTrue(self._tx(self._hud_msg(lka_active=0)))
+    self.assertFalse(self._tx(self._hud_msg(bus=2)))
+    self.assertFalse(self._tx(self._hud_msg(length=7)))
+    # It carries no actuation, so it survives a disengagement.
+    self._rx_field(0x3A5, active=0)
+    self.assertFalse(self.safety.get_controls_allowed())
+    self.assertTrue(self._tx(self._hud_msg()))
+
   def test_forwarding_routes_and_relay_protection(self):
     for addr, source, destination in (
       (0x345, 0, 2), (0x3A2, 2, 0), (0x360, 0, 2), (0x3A2, 0, 2),
@@ -654,8 +795,7 @@ class TestCherySafety(SafetyTest):
     self.assertTrue(self.safety.get_controls_allowed())
 
   def test_each_inhibitor_revokes_and_stays_revoked(self):
-    for field, address, value in (("brake", 0x03E, 1), ("engine_gas", 0x03E, 11),
-                                   ("acc_gas", 0x3A2, 1), ("aeb", 0x3A5, 1)):
+    for field, address, value in (("brake", 0x03E, 1), ("acc_gas", 0x3A2, 1), ("aeb", 0x3A5, 1)):
       for speed in (0, 100) if field == "brake" else (100,):
         self.setUp()
         self._seed_all()
@@ -671,20 +811,22 @@ class TestCherySafety(SafetyTest):
         self._rx_field(address, **release)
         self._rx_field(0x3A5, active=1, aeb=0)
         self.assertFalse(self.safety.get_controls_allowed())
-        self._rx_field(0x03E, brake=0, engine_gas=0)
+        self._rx_field(0x03E, brake=0)
         self._rx_field(0x3A2, acc_gas=0)
         self._rx_field(0x3A5, active=0)
         self._rx_field(0x3A2, state=2)
         self._rx_field(0x3A5, active=1)
         self.assertTrue(self.safety.get_controls_allowed())
 
-  def test_gas_sources_are_or_interleaved(self):
-    self._rx_field(0x03E, engine_gas=11)
-    self.assertTrue(self.safety.get_gas_pressed_prev())
-    self._rx_field(0x3A2, acc_gas=0)
-    self.assertTrue(self.safety.get_gas_pressed_prev())
+  def test_gas_comes_only_from_the_camera_pedal_bit(self):
+    # ENGINE_DATA.GAS is a drivetrain torque request whose distribution is identical under ACC
+    # and under the driver, so it must not move gas_pressed at any magnitude.
+    for engine_gas in (0, 11, 205, 3000, 0xFFFF):
+      self._rx_field(0x03E, engine_gas=engine_gas)
+      self.assertFalse(self.safety.get_gas_pressed_prev(), engine_gas)
     self._rx_field(0x3A2, acc_gas=1)
-    self._rx_field(0x03E, engine_gas=0)
+    self.assertTrue(self.safety.get_gas_pressed_prev())
+    self._rx_field(0x03E, engine_gas=0xFFFF)
     self.assertTrue(self.safety.get_gas_pressed_prev())
     self._rx_field(0x3A2, acc_gas=0)
     self.assertFalse(self.safety.get_gas_pressed_prev())
@@ -799,10 +941,6 @@ class TestCherySafety(SafetyTest):
     self.assertFalse(self.safety.get_controls_allowed_lateral())
     self._rx_field(0x316, fr=0x316, fl=0x8000)
     self.assertFalse(self.safety.get_controls_allowed())
-    for gas, expected in ((10, False), (11, True)):
-      self.setUp()
-      self._rx_field(0x03E, engine_gas=gas)
-      self.assertEqual(self.safety.get_gas_pressed_prev(), expected)
     self.setUp()
     self._rx_field(0x03E, brake=0)
     self._rx_field(0x03E, brake=0)

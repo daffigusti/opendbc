@@ -11,6 +11,11 @@ ACCEL_MAX = 2.0
 CMD_MIN = -511
 CMD_ZERO = -24
 CMD_MAX = 511
+# Stock ACC holds the car at standstill with CMD=400 while ACCEL_ON stays 0. CMD is a magnitude
+# and ACCEL_ON is its direction, so that pair is the OEM's maximum brake request, verified over
+# 192 route segments (10 hold episodes, 423 ACC_ACTIVE=1 + STOPPED=1 frames). Reproducing it is
+# what keeps the car held once openpilot owns the ACC frame.
+CMD_FULL_STOP = 400
 
 
 def calculate_crc(data: bytes) -> int:
@@ -66,6 +71,29 @@ def create_steering_control(packer, bus: int, apply_steer: float, lkas_enable: b
   return packer.make_can_msg("LKAS_CAM_CMD_345", bus, values)
 
 
+def create_lkas_state_hud(packer, bus: int, stock_values: dict, lkas_active: bool):
+  """LKAS_STATE drives the cluster's lane-keep icon.
+
+  Stock 0x307 is blocked from forwarding, so this frame has to carry the state in both
+  directions: openpilot's own while lateral is active, and the camera's verbatim otherwise.
+  """
+  if not lkas_active:
+    return packer.make_can_msg("LKAS_STATE", bus, stock_values)
+
+  values = {
+    "NEW_SIGNAL_1": 1,
+    "NEW_SIGNAL_2": 2,
+    "NEW_SIGNAL_3": 2,
+    "NEW_SIGNAL_4": 1,
+    "STATE": 0,
+    "LKA_ACTIVE": 1,
+    "COUNTER": stock_values["COUNTER"],
+  }
+  _, dat, _ = packer.make_can_msg("LKAS_STATE", bus, values)
+  values["CHECKSUM"] = calculate_crc(dat[:-1])
+  return packer.make_can_msg("LKAS_STATE", bus, values)
+
+
 def create_button_control(packer, bus: int, frame: int, stock_values: dict, cancel: bool = False, resume: bool = False):
   values = {name: stock_values[name] for name in (
     "ACC", "CC_BTN", "RES_PLUS", "RES_MINUS", "NEW_SIGNAL_1",
@@ -97,11 +125,12 @@ def create_acc_control(packer, bus: int, stock_values: dict, long_active: bool,
     "NEW_SIGNAL_13", "NEW_SIGNAL_8", "NEW_SIGNAL_5", "NEW_SIGNAL_6", "NEW_SIGNAL_10",
     "NEW_SIGNAL_3", "NEW_SIGNAL_4", "AEB_REQ_STOP",
   )}
+  hold = long_active and full_stop
   values.update({
-    "CMD": throttle,
-    "ACCEL_ON": 1 if throttle >= 0 else 0,
-    "ACC_STATE": 2 if long_active and full_stop else 3 if long_active else stock_values["ACC_STATE"],
-    "STOPPED": 1 if long_active and full_stop else 0 if long_active else stock_values["STOPPED"],
+    "CMD": CMD_FULL_STOP if hold else throttle,
+    "ACCEL_ON": 0 if hold else (1 if throttle >= 0 else 0),
+    "ACC_STATE": 2 if hold else 3 if long_active else stock_values["ACC_STATE"],
+    "STOPPED": 1 if hold else 0 if long_active else stock_values["STOPPED"],
     "STOPPING": stock_values["STOPPING"],
     # Keep OEM AEB request path authoritative; host never requests AEB stop.
     "AEB_REQ_STOP": 0,

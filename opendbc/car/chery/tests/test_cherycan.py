@@ -125,7 +125,7 @@ def test_acc_command_maps_clamped_piecewise_accel(gas, command):
 
 
 @pytest.mark.parametrize("full_stop", [False, True])
-def test_acc_full_stop_never_overrides_command_and_inactive_preserves_stock_state(full_stop):
+def test_acc_full_stop_holds_with_stock_command_and_inactive_preserves_stock_state(full_stop):
   packer = CANPacker("chery_canfd")
   stock = {name: 0 for name in (
     "ACC_STATE", "STOPPED", "ACC_STATE_2", "NEW_SIGNAL_12", "NEW_SIGNAL_9",
@@ -139,13 +139,23 @@ def test_acc_full_stop_never_overrides_command_and_inactive_preserves_stock_stat
     address, dat, bus = create_acc_control(packer, 0, stock, long_active, 2.0, full_stop, False)
     parser.update([[0, [(address, dat, bus)]]])
     values = parser.vl["ACC_CMD"]
-    assert values["CMD"] == (-24 if not long_active else 511)
-    if long_active:
-      assert values["ACC_STATE"] == (2 if full_stop else 3)
-      assert values["STOPPED"] == int(full_stop)
-    else:
+    if not long_active:
+      assert values["CMD"] == -24
+      assert values["ACCEL_ON"] == 0
       assert values["ACC_STATE"] == 1
       assert values["STOPPED"] == 1
+    elif full_stop:
+      # CMD is a magnitude and ACCEL_ON its direction: 400 with ACCEL_ON clear is the stock
+      # maximum brake request that holds a stopped car.
+      assert values["CMD"] == 400
+      assert values["ACCEL_ON"] == 0
+      assert values["ACC_STATE"] == 2
+      assert values["STOPPED"] == 1
+    else:
+      assert values["CMD"] == 511
+      assert values["ACCEL_ON"] == 1
+      assert values["ACC_STATE"] == 3
+      assert values["STOPPED"] == 0
 
 
 @pytest.mark.parametrize("fixture", [0, 1])

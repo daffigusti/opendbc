@@ -25,7 +25,8 @@ class CarInterface(CarInterfaceBase):
       ret.safetyConfigs[-1].safetyParam |= CherySafetyFlags.LONG_CONTROL.value
     ret.steerControlType = structs.CarParams.SteerControlType.angle
     ret.transmissionType = structs.CarParams.TransmissionType.direct
-    ret.steerActuatorDelay = 0.1
+    # 0.2s is what the fork that drives this car runs with; 0.1 undershot every turn entry.
+    ret.steerActuatorDelay = 0.2
     ret.steerLimitTimer = 1.0
     ret.longitudinalActuatorDelay = 0.05
     ret.stopAccel = CarControllerParams.ACCEL_MIN

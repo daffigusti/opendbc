@@ -21,11 +21,32 @@ Future evidence required:
   measurements.
 - Stock AEB interaction requires hardware validation.
 - Stage C3, Panda bench, and controlled-drive validation before expanding support.
-- Owner-provided CAN capture verified ACC cancel. `RES_PLUS` TX remains
-  unverified; `0x360` remains denied/forwarded.
-- Driver torque override is decode-only. Sign and threshold require owner-labeled
-  stationary correlation before enforcement; `steeringPressed` remains false until
-  verified. Acceptance of override enforcement is intentionally deferred.
+- `RES_PLUS` TX is now allowed on `0x360`, camera bus only, and only while the car
+  is stopped with controls authorized and no other button bit asserted. The tap
+  cadence (4 frames on, 10 off, at 20Hz) is taken from the driver's own measured
+  presses. Neither the cadence nor the TX path has been confirmed on-vehicle.
+- Driver torque override is enforced at `abs(TORQUE_DRIVER) > 70` with one second
+  of hysteresis either way. `TORQUE_DRIVER`'s sign is still unverified, so only its
+  magnitude is used, and the threshold itself needs owner-labeled stationary
+  correlation.
+- `ENGINE_DATA.GAS` is not a driver-pedal signal and is no longer read as one.
+  Across 943k moving frames its distribution under ACC and under the driver is
+  indistinguishable (38.8% vs 51.9% at zero, both saturating above 26000), so no
+  threshold separates them; reading it as a press denied controls in 98%+ of
+  ACC-engaged frames while protecting against nothing. `gas_pressed` now comes only
+  from the camera's `ACC_CMD.GAS_PRESSED` bit, which is set in under 1% of frames
+  even under full throttle. A real driver-pedal signal still has to be captured,
+  most likely from a bus not present in the current logs.
+- `ACC_CMD` full-stop uses the stock hold encoding (`CMD=400`, `ACCEL_ON=0`,
+  `STOPPED=1`, `ACC_STATE=2`), derived from 10 hold episodes across 192 route
+  segments. Panda permits it only while the car is already stopped. Not yet
+  confirmed on-vehicle.
+- `LKAS_STATE` (`0x307`) is now transmitted by openpilot and the stock copy is
+  blocked from forwarding once RX health is trusted. Cluster behaviour with the
+  substituted frame is unverified.
+- `steerRatio` 14 and `steerActuatorDelay` 0.2 are carried over from the fork that
+  drives this car, not measured. Panda's `steer_ratio` must be changed with them or
+  the VM angle limits diverge from the controller's.
 
 Publication rule: publish owner-provided evidence only after owner approval, and
 strip route IDs, URLs, tokens, VINs, locations, timestamps, and raw identifying

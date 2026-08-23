@@ -11,7 +11,7 @@ from opendbc.car.chery.carcontroller import CarController
 from opendbc.car.chery.carstate import CarState
 from opendbc.car.chery.fingerprints import FINGERPRINTS, FW_VERSIONS
 from opendbc.car.chery.interface import CarInterface
-from opendbc.car.chery.values import CAR, CherySafetyFlags, DBC
+from opendbc.car.chery.values import CAR, CarControllerParams, CherySafetyFlags, DBC
 from opendbc.car.fingerprints import _FINGERPRINTS
 from opendbc.car.structs import CarParams
 from opendbc.car.values import PLATFORMS
@@ -123,23 +123,33 @@ def make_control(lat_active: bool, angle: float, long_active: bool = False):
   return control.as_reader()
 
 
-def make_state(measured_angle: float, speed: float = 1.0, front_wheel_speed: float | None = None):
+def make_state(measured_angle: float, speed: float = 1.0, front_wheel_speed: float | None = None,
+               steering_torque: float = 0.0, standstill: bool = False, acc_active: bool = False):
   state = structs.CarState()
   state.vEgo = speed
   state.vEgoRaw = speed
   state.steeringAngleDeg = measured_angle
-  state.steeringTorque = 0.0
+  state.steeringTorque = steering_torque
+  state.standstill = standstill
   return SimpleNamespace(
     front_wheel_speed=speed if front_wheel_speed is None else front_wheel_speed,
     out=state.as_reader(),
+    acc_active=acc_active,
     lkas_cmd={
       "NEW_SIGNAL_5": 0,
       "NEW_SIGNAL_6": 0,
       "NEW_SIGNAL_7": 0,
       "NEW_SIGNAL_1": 0,
     },
+    lkas_state={name: 0 for name in (
+      "NEW_SIGNAL_1", "NEW_SIGNAL_2", "NEW_SIGNAL_3", "NEW_SIGNAL_4",
+      "STATE", "LKA_ACTIVE", "COUNTER", "CHECKSUM",
+    )},
     acc_cmd={},
-    buttons_stock_values={},
+    buttons_stock_values={name: 0 for name in (
+      "ACC", "CC_BTN", "RES_PLUS", "RES_MINUS", "NEW_SIGNAL_1",
+      "GAP_ADJUST_UP", "GAP_ADJUST_DOWN",
+    )},
   )
 
 
@@ -281,9 +291,10 @@ def test_active_encoded_commands_rate_limit_across_reserved_gap(starting_angle, 
   for frame in range(1, 11):
     control = make_control(True, requested_angle)
     actuators, sends = controller.update(control, structs.CarControlSP(), state, frame * 10_000_000)
-    if not sends:
+    steering = [send for send in sends if send[0] == 0x345]
+    if not steering:
       continue
-    values = decode_steering_message(next(send for send in sends if send[0] == 0x345))
+    values = decode_steering_message(steering[0])
     assert values["LKA_ACTIVE"] == 1
     wire_angle = (values["CMD"] + 392) / 10
     assert abs(wire_angle - previous_wire_angle) <= 5.0
@@ -490,8 +501,11 @@ def test_brake_state_uses_engine_switch_and_preserves_brake_position(brake_pos, 
 
 
 @pytest.mark.parametrize("active, acc_gas, engine_gas, expected", [
-  (1, 1, 0, True), (1, 0, 100, True), (1, 0, 0, False), (0, 1, 0, False),
-  (0, 0, 2, True), (0, 0, 1, False),
+  # While the ACC owns the throttle, ENGINE_DATA.GAS is openpilot's own request echoed back, so
+  # only the camera's driver-pedal bit counts. With the ACC off, the raw throttle has to clear
+  # the echo band before it reads as a press.
+  (1, 1, 0, True), (1, 0, 100, False), (1, 0, 3000, False), (1, 0, 0, False),
+  (0, 1, 0, False), (0, 0, 400, True), (0, 0, 300, False), (0, 0, 2, False),
 ])
 def test_gas_source_by_acc_active(active, acc_gas, engine_gas, expected):
   cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
@@ -520,3 +534,219 @@ def test_buttons_emit_only_verified_resume_edges():
     parsers[Bus.pt].update([[0, [(address, data, bus)]]])
     events = state.update(parsers)[0].buttonEvents
     assert {str(event.type) for event in events} == expected
+
+
+def hud_frames(sends):
+  return [send for send in sends if send[0] == 0x307]
+
+
+def decode_hud(message):
+  parser = CANParser("chery_canfd", [("LKAS_STATE", 0)], 0)
+  parser.update([[0, [message]]])
+  return parser.vl["LKAS_STATE"]
+
+
+def test_hud_frame_goes_out_at_20hz_and_mirrors_lateral_state():
+  controller = make_controller()
+  sends = []
+  for frame in range(100):
+    _actuators, frame_sends = controller.update(make_control(True, 5.0), structs.CarControlSP(),
+                                                make_state(0.0, 10.0), frame * 10_000_000)
+    sends.extend(frame_sends)
+  hud = hud_frames(sends)
+  assert len(hud) == 20
+  assert all(bus == 0 and len(data) == 8 for _addr, data, bus in hud)
+  assert decode_hud(hud[-1])["LKA_ACTIVE"] == 1
+
+
+def test_hud_frame_relays_stock_content_while_lateral_is_inactive():
+  controller = make_controller()
+  state = make_state(0.0, 10.0)
+  state.lkas_state.update({"LKA_ACTIVE": 1, "STATE": 1, "COUNTER": 5, "CHECKSUM": 0x42})
+  _actuators, sends = controller.update(make_control(False, 0.0), structs.CarControlSP(), state, 0)
+  values = decode_hud(hud_frames(sends)[0])
+  assert values["LKA_ACTIVE"] == 1
+  assert values["STATE"] == 1
+  assert values["CHECKSUM"] == 0x42
+
+
+def run_frames(controller, control, frames, **state_kwargs):
+  """Drive the controller over a frame range and return the last frame of each kind it emitted."""
+  last = {}
+  for frame in frames:
+    _actuators, sends = controller.update(control, structs.CarControlSP(),
+                                          make_state(0.0, 10.0, **state_kwargs), frame * 10_000_000)
+    for send in sends:
+      last[send[0]] = send
+  return last
+
+
+def test_driver_torque_hands_lateral_back_and_takes_it_returned():
+  controller = make_controller()
+  control = make_control(True, 30.0)
+  override = CarControllerParams.STEER_THRESHOLD + 1
+
+  # A brief tug does not drop lateral.
+  last = run_frames(controller, control, range(50), steering_torque=override)
+  assert decode_steering_message(last[0x345])["LKA_ACTIVE"] == 1
+
+  # Holding past a second does.
+  last = run_frames(controller, control, range(50, 160), steering_torque=override)
+  assert decode_steering_message(last[0x345])["LKA_ACTIVE"] == 0
+  assert decode_hud(last[0x307])["LKA_ACTIVE"] == 0
+
+  # And letting go for a second gives it back.
+  last = run_frames(controller, control, range(160, 400), steering_torque=0.0)
+  assert decode_steering_message(last[0x345])["LKA_ACTIVE"] == 1
+  assert decode_hud(last[0x307])["LKA_ACTIVE"] == 1
+
+
+def make_resume_control(resume: bool):
+  control = structs.CarControl()
+  control.latActive = False
+  control.longActive = True
+  control.cruiseControl.resume = resume
+  return control.as_reader()
+
+
+def button_frames(sends):
+  return [send for send in sends if send[0] == 0x360]
+
+
+def test_resume_taps_res_plus_instead_of_holding_it():
+  controller = make_controller()
+  state = make_state(0.0, 0.0, standstill=True, acc_active=False)
+  pressed = []
+  parser = CANParser("chery_canfd", [("STEER_BUTTON", 2)], 2)
+  for frame in range(140):
+    _actuators, sends = controller.update(make_resume_control(True), structs.CarControlSP(), state, frame * 10_000_000)
+    for message in button_frames(sends):
+      assert message[2] == 2
+      parser.update([[0, [message]]])
+      pressed.append(parser.vl["STEER_BUTTON"]["RES_PLUS"])
+
+  # 140 frames is 28 button slots: two full 14-slot cycles of 4 taps each.
+  assert len(pressed) == 8
+  assert all(pressed)
+
+
+def test_resume_stops_once_the_acc_is_active_again():
+  controller = make_controller()
+  active = make_state(0.0, 0.0, standstill=True, acc_active=True)
+  for frame in range(40):
+    _actuators, sends = controller.update(make_resume_control(True), structs.CarControlSP(), active, frame * 10_000_000)
+    assert not button_frames(sends)
+
+
+def test_no_resume_request_sends_no_buttons():
+  controller = make_controller()
+  state = make_state(0.0, 0.0, standstill=True, acc_active=False)
+  for frame in range(40):
+    _actuators, sends = controller.update(make_resume_control(False), structs.CarControlSP(), state, frame * 10_000_000)
+    assert not button_frames(sends)
+
+
+def acc_stock():
+  return {name: 0 for name in (
+    "ACC_STATE", "STOPPED", "ACC_STATE_2", "NEW_SIGNAL_12", "NEW_SIGNAL_9",
+    "NEW_SIGNAL_2", "STOPPING", "NEW_SIGNAL_13", "NEW_SIGNAL_8", "NEW_SIGNAL_5",
+    "NEW_SIGNAL_6", "NEW_SIGNAL_10", "NEW_SIGNAL_3", "NEW_SIGNAL_4", "AEB_REQ_STOP", "COUNTER",
+  )}
+
+
+@pytest.mark.parametrize("standstill, accel, expect_hold", [
+  (True, -1.0, True),    # stopped and still braking: hold
+  (True, 0.5, False),    # stopped but the plan wants to launch: release
+  (False, -3.5, False),  # still rolling: a hold here is a full-force brake
+])
+def test_full_stop_hold_needs_a_stopped_car_and_a_braking_plan(standstill, accel, expect_hold):
+  controller = make_controller()
+  controller.CP.openpilotLongitudinalControl = True
+  control = structs.CarControl()
+  control.longActive = True
+  control.actuators.accel = accel
+  state = make_state(0.0, 0.0 if standstill else 5.0, standstill=standstill)
+  state.acc_cmd = acc_stock()
+  _actuators, sends = controller.update(control.as_reader(), structs.CarControlSP(), state, 0)
+  parser = CANParser("chery_canfd", [("ACC_CMD", 0)], 0)
+  parser.update([[0, [next(send for send in sends if send[0] == 0x3A2)]]])
+  values = parser.vl["ACC_CMD"]
+  assert values["STOPPED"] == int(expect_hold)
+  assert (values["CMD"] == 400 and values["ACCEL_ON"] == 0) == expect_hold
+
+
+def feed(parsers, packer, bus_key, messages):
+  frames = []
+  for message, values in messages:
+    address, data, _ = packer.make_can_msg(message, parsers[bus_key].bus, values)
+    frames.append((address, data, parsers[bus_key].bus))
+  parsers[bus_key].update([0, frames])
+
+
+def state_fixture():
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  return cp, CarState.get_can_parsers(cp, structs.CarParamsSP()), CANPacker("chery_canfd")
+
+
+@pytest.mark.parametrize("sign_signal, left, right", [(0, False, False), (1, False, True), (2, True, False)])
+def test_blinkers_decode_from_bcm(sign_signal, left, right):
+  cp, parsers, packer = state_fixture()
+  feed(parsers, packer, Bus.pt, [("BCM_SIGNAL_1", {"SIGN_SIGNAL": float(sign_signal)})])
+  state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
+  assert (state.leftBlinker, state.rightBlinker) == (left, right)
+
+
+@pytest.mark.parametrize("acc_active, stopped, expected", [
+  (0, 1, True),   # the stock hold: ACC_ACTIVE has dropped, STOPPED carries it
+  (1, 1, False),  # RES+ landed, ACC is back: must clear or the car never launches
+  (0, 0, False),
+  (1, 0, False),
+])
+def test_cruise_standstill_tracks_the_stock_hold_not_vego(acc_active, stopped, expected):
+  cp, parsers, packer = state_fixture()
+  feed(parsers, packer, Bus.cam, [
+    ("ACC", {"ACC_ACTIVE": float(acc_active)}),
+    ("ACC_CMD", {"STOPPED": float(stopped)}),
+  ])
+  state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
+  assert state.standstill  # no wheel speed fed, so vEgo is zero throughout
+  assert state.cruiseState.standstill is expected
+
+
+# TORQUE_DRIVER is quantised to 0.24, so the pair straddling the threshold is 69.84 / 70.08.
+@pytest.mark.parametrize("torque, expected", [(0, False), (69.84, False), (70.08, True), (-70.08, True)])
+def test_steering_pressed_uses_torque_magnitude(torque, expected):
+  cp, parsers, packer = state_fixture()
+  feed(parsers, packer, Bus.pt, [("STEER_SENSOR_2", {"TORQUE_DRIVER": float(torque)})])
+  state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
+  assert state.steeringPressed is expected
+
+
+def drive_eps(car_state, parsers, packer, lkas_cmd, commanding, frames):
+  for _ in range(frames):
+    feed(parsers, packer, Bus.pt, [
+      ("WHEEL_SPEED_FRNT", {"WHEEL_SPEED_FR": 40, "WHEEL_SPEED_FL": 40}),
+      ("WHEEL_SPEED_REAR", {"WHEEL_SPEED_RR": 40, "WHEEL_SPEED_RL": 40}),
+      ("LKAS", {"LKAS_CMD": float(lkas_cmd), "NEW_SIGNAL_1": 1}),
+    ])
+    feed(parsers, packer, Bus.cam, [("ACC", {"ACC_ACTIVE": 1})])
+    feed(parsers, packer, Bus.loopback, [("LKAS_CAM_CMD_345", {"LKA_ACTIVE": float(commanding)})])
+    state, _ = car_state.update(parsers)
+  return state
+
+
+def test_eps_fault_latches_only_after_a_sustained_dead_servo():
+  cp, parsers, packer = state_fixture()
+  car_state = CarState(cp, structs.CarParamsSP())
+  timeout = CarControllerParams.STEER_TIMEOUT
+
+  state = drive_eps(car_state, parsers, packer, -1, True, timeout - 1)
+  assert state.steerFaultTemporary is False
+  state = drive_eps(car_state, parsers, packer, -1, True, 1)
+  assert state.steerFaultTemporary is True
+
+  # A live servo, or openpilot not commanding, clears the counter.
+  state = drive_eps(car_state, parsers, packer, 5, True, 1)
+  assert state.steerFaultTemporary is False
+  state = drive_eps(car_state, parsers, packer, -1, False, timeout + 1)
+  assert state.steerFaultTemporary is False

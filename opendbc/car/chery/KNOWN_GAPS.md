@@ -1,19 +1,15 @@
 # Chery Omoda E5 parser gaps
 
-- Door state unavailable. DBC exposes `DOOR` (746) only as unnamed signals;
-  `BCM_SIGNAL_1` door bits have unconfirmed target semantics.
-- Seatbelt state unavailable. DBC exposes unnamed `SEATBELT` in `NEW_MSG_430`
-  (1072), with no confirmed latch semantics.
+- Door and seatbelt are parsed from one route. Any `BCM_SIGNAL_1` door bit reports
+  `doorOpen`; the bits rose only in park or at a crawl. `NEW_MSG_430.SEATBELT`
+  reads 1 when unlatched (in park before buckling and after exit) and 0 for the
+  whole drive. Which door each bit maps to, and whether the belt signal covers
+  seats other than the driver's, are unconfirmed.
 - FCW state unavailable. No confirmed FCW signal exists in route parser set;
-  `SETTING.SHOW_AEB` is not treated as FCW.
-
-These fields intentionally remain false as an owner-approved unsupported
-compatibility behavior. They are not verified indications that vehicle systems
-are healthy and must not block verified controls.
+  `SETTING.SHOW_AEB` is not treated as FCW. `stockFcw` intentionally stays false.
 
 Future evidence required:
 
-- Capture and decode door and seatbelt frames with confirmed semantics.
 - Capture FCW behavior separately from AEB and confirm route signal mapping.
 - Capture EPS fault and watchdog inputs before claiming steer-fault handling.
 - Physical steer ratio and rack range require owner-labeled measurements.

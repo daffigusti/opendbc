@@ -36,7 +36,7 @@ class CarState(CarStateBase):
       ("STEER_ANGLE_SENSOR", 100), ("WHEEL_SPEED_FRNT", 50),
       ("WHEEL_SPEED_REAR", 50), ("BRAKE_DATA", 50), ("ENGINE_DATA", 100),
       ("STEER_SENSOR_2", 50), ("STEER_BUTTON", 20),
-      ("BCM_SIGNAL_1", 50), ("LKAS", 100),
+      ("BCM_SIGNAL_1", 50), ("LKAS", 100), ("NEW_MSG_430", 50),
     ]
     if CP.enableBsm:
       pt_messages += [("BSM_LEFT", 10), ("BSM_RIGHT", 10)]
@@ -141,8 +141,11 @@ class CarState(CarStateBase):
     if self.CP.enableBsm:
       ret.leftBlindspot = bool(cp.vl["BSM_LEFT"]["BSM_LEFT_DETECT"])
       ret.rightBlindspot = bool(cp.vl["BSM_RIGHT"]["BSM_RIGHT_DETECT"])
-    ret.doorOpen = False
-    ret.seatbeltUnlatched = False
+    # Confirmed on one route: the door bits rise only in park or at a crawl as occupants get in
+    # and out, and SEATBELT reads 1 in park before buckling and after the doors open at the end,
+    # and 0 for the whole drive.
+    ret.doorOpen = any(cp.vl["BCM_SIGNAL_1"][door] for door in ("FL_DOOR_OPEN", "FR_DOOR_OPEN", "RL_DOOR_OPEN", "RR_DOOR_OPEN"))
+    ret.seatbeltUnlatched = cp.vl["NEW_MSG_430"]["SEATBELT"] == 1
     self.buttons_stock_values = cp.vl["STEER_BUTTON"].copy()
     ret.buttonEvents = self._button_events(cp.vl["STEER_BUTTON"])
     return ret, ret_sp

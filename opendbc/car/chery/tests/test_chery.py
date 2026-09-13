@@ -814,3 +814,20 @@ def test_icbm_available():
   cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
   cp_sp = CarInterface.get_non_essential_params_sp(cp, CAR.CHERY_OMODA_E5)
   assert cp_sp.intelligentCruiseButtonManagementAvailable
+
+
+@pytest.mark.parametrize("door", ["FL_DOOR_OPEN", "FR_DOOR_OPEN", "RL_DOOR_OPEN", "RR_DOOR_OPEN"])
+def test_any_open_door_reports_door_open(door):
+  cp, parsers, packer = state_fixture()
+  feed(parsers, packer, Bus.pt, [("BCM_SIGNAL_1", {door: 1})])
+  state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
+  assert state.doorOpen
+
+
+@pytest.mark.parametrize("seatbelt, expected", [(0, False), (1, True)])
+def test_seatbelt_bit_means_unlatched(seatbelt, expected):
+  cp, parsers, packer = state_fixture()
+  feed(parsers, packer, Bus.pt, [("BCM_SIGNAL_1", {}), ("NEW_MSG_430", {"SEATBELT": float(seatbelt)})])
+  state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
+  assert not state.doorOpen
+  assert state.seatbeltUnlatched is expected

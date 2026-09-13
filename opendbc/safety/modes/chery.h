@@ -102,7 +102,9 @@ static void chery_rx_hook(const CANPacket_t *msg) {
     // 1 and the pedal bit set. That is still an available ACC. Without the pedal bit, 1 is off.
     const bool gas_override = (state == 1U) && chery_acc_gas && chery_acc_active;
     chery_acc_available = (state == 2U) || (state == 3U) || gas_override;
-    acc_main_on = chery_acc_available;
+    // acc_main_on is left false, as on Tesla and Rivian. The Omoda has no main switch, and
+    // ACC_STATE reads 1 on 98% of brake-pressed frames, so deriving main from it would end MADS
+    // lateral on every brake press. MADS engages on the ACC engagement edge instead.
     chery_acc_stopped = GET_BIT(msg, 10U);
     chery_pcm_cruise_check();
   } else if (msg->addr == 0x3A5U) {

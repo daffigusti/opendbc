@@ -57,6 +57,11 @@ Future evidence required:
   `SETTING.ACC_AVAILABLE=3` with `ACC_ACTIVE` still 1. Both are treated as an
   available ACC only while `ACC_ACTIVE` is 1 (and, in Panda, the pedal bit is set),
   so lateral survives the override. Seen on three presses in one route.
+- MADS is partial support, as on Tesla and Rivian. There is no ACC main switch, and
+  `ACC_STATE`/`ACC_AVAILABLE` drop on 98% of brake-pressed frames, so no stable main
+  signal exists; Panda leaves `acc_main_on` false. MADS lateral engages with the ACC,
+  survives an ACC cancel or unavailability, and is forced to disengage on brake. No
+  LKAS toggle button has been identified, so lateral cannot be engaged without the ACC.
 
 Publication rule: publish owner-provided evidence only after owner approval, and
 strip route IDs, URLs, tokens, VINs, locations, timestamps, and raw identifying

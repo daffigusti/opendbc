@@ -748,15 +748,42 @@ class TestCherySafety(SafetyTest):
       self.assertFalse(self._tx(make_msg(bus, 0x345, 8)))
       self.assertEqual(-1, self.safety.safety_fwd_hook(bus, 0x345))
 
-  def test_acc_mads_authorization_stays_lateral_until_unavailable(self):
-    self._engage()
-    self.safety.set_controls_allowed_lateral(True)
-    for address, (bus, _dlc, _frequency) in RX_LAYOUT.items():
-      if address not in (0x3A2, 0x3A5):
-        self._rx(self._packet(address, bus))
-        self.assertTrue(self.safety.get_controls_allowed_lateral())
+  def _engage_mads(self, disengage_on_brake=True):
+    self.safety.set_mads_params(True, disengage_on_brake, False)
+    self._seed_all()
+    self._validate_config()
+    self._rx_field(0x3A2, state=2)
+    self._rx_field(0x3A5, active=1)
+    self.assertTrue(self.safety.get_controls_allowed())
+    self.assertTrue(self.safety.get_controls_allowed_lateral())
 
-    self._rx_field(0x3A2, state=0)
+  def test_mads_never_reports_acc_main(self):
+    """No main switch exists; ACC_STATE drops on brake, so it must not drive the MADS main edge."""
+    self._seed_all()
+    for state in (1, 2, 3, 0):
+      self._rx_field(0x3A2, state=state)
+      self.assertFalse(self.safety.get_acc_main_on())
+
+  def test_mads_lateral_survives_acc_cancel_and_unavailable(self):
+    self._engage_mads()
+    self._rx_field(0x3A5, active=0)
+    self.assertFalse(self.safety.get_controls_allowed())
+    self.assertTrue(self.safety.get_controls_allowed_lateral())
+    self._rx_field(0x3A2, state=1)
+    self.assertTrue(self.safety.get_controls_allowed_lateral())
+    self.assertTrue(self._tx(self._angle_cmd_msg(0, True)))
+
+  def test_mads_lateral_ends_on_brake(self):
+    self._engage_mads()
+    self._rx_field(0x3A5, active=0)
+    self._rx_field(0x03E, brake=1)
+    self.assertFalse(self.safety.get_controls_allowed_lateral())
+
+  def test_mads_lateral_ends_on_invalid_rx(self):
+    self._engage_mads()
+    bad = self._packet(0x3A5, 2)
+    bad.data[7] ^= 1
+    self.assertFalse(self._rx(bad))
     self.assertFalse(self.safety.get_controls_allowed_lateral())
 
   def test_acc_authorization_arrival_orders_and_states(self):

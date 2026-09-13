@@ -72,6 +72,8 @@ FW_QUERY_CONFIG = FwQueryConfig(
       bus=0,
     )
   ],
+  # The three shapes seen on the E5 engine ECU so far: plain version, masked, and UDS-prefixed part number
+  fw_version_regex=br"(?:\d{2}\.\d{2}\.\d{2}|\?{10}|\xf1\x87[0-9A-Z]{11} {5}\xf1\x82\?{10})",
 )
 
 

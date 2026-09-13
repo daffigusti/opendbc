@@ -23,8 +23,8 @@ class TestBuild(unittest.TestCase):
   def test_release_build(self):
     path = _build_libsafety(release=True)
     safety = ffi.dlopen(path)
-    self.assertEqual(safety.set_safety_hooks(35, 0), 0)
-    self.assertEqual(safety.get_current_safety_mode(), 35)
+    self.assertEqual(safety.set_safety_hooks(39, 0), 0)
+    self.assertEqual(safety.get_current_safety_mode(), 39)
     self.assertEqual(safety.get_current_safety_rx_checks_len(), 6)
     packet = ffi.new('CANPacket_t *')
     packet[0].addr = 0
@@ -37,7 +37,7 @@ class TestBuild(unittest.TestCase):
   def test_release_chery_longitudinal_flag_matches_development_contract(self):
     path = _build_libsafety(release=True)
     safety = ffi.dlopen(path)
-    safety.set_safety_hooks(35, 1)
+    safety.set_safety_hooks(39, 1)
     safety.set_controls_allowed(True)
     # LONG_CONTROL must remain fail-closed until RX health is trusted.
     self.assertFalse(safety.safety_tx_hook(self._acc_packet(ffi, -511)))
@@ -48,7 +48,7 @@ class TestBuild(unittest.TestCase):
     self.assertFalse(safety.safety_tx_hook(self._acc_packet(ffi, -24, 1)))
     self.assertEqual(safety.safety_fwd_hook(2, 0x3A2), 0)
 
-    safety.set_safety_hooks(35, 0)
+    safety.set_safety_hooks(39, 0)
     self.assertFalse(safety.safety_tx_hook(self._acc_packet(ffi, -24)))
     self.assertEqual(safety.safety_fwd_hook(2, 0x3A2), 0)
 

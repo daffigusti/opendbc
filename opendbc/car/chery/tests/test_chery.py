@@ -61,7 +61,7 @@ def test_can_bus_offsets():
 def test_chery_platform_registered():
   assert CAR.CHERY_OMODA_E5 in PLATFORMS.values()
   assert DBC[CAR.CHERY_OMODA_E5][Bus.pt] == "chery_canfd"
-  assert int(CarParams.SafetyModel.cheryCanFd) == 35
+  assert int(CarParams.SafetyModel.cheryCanFd) == 39
   assert FINGERPRINTS[CAR.CHERY_OMODA_E5]
   assert _FINGERPRINTS[str(CAR.CHERY_OMODA_E5)] == FINGERPRINTS[CAR.CHERY_OMODA_E5]
   assert FW_VERSIONS[CAR.CHERY_OMODA_E5]

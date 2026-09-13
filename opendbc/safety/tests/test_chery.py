@@ -10,7 +10,7 @@ from opendbc.car.lateral import get_max_angle_delta_vm, get_max_angle_vm
 from opendbc.car.vehicle_model import VehicleModel
 
 
-SAFETY_CHERY = 35
+SAFETY_CHERY = 39
 RX_LAYOUT = {
   0x03E: (0, 48, 100),
   0x1D3: (0, 8, 100),

@@ -681,7 +681,7 @@ class TestCherySafety(SafetyTest):
     self._rx_field(0x3A2, acc_gas=1)
     self.assertFalse(self._tx(self._acc_hold_msg()))
 
-  def test_resume_button_transmission_rules(self):
+  def test_button_transmission_rules(self):
     self._engage()
     self._rx_field(0x316, fr=0, fl=0)
     self.assertTrue(self._tx(self._button_msg(RES_PLUS=1)))
@@ -689,14 +689,30 @@ class TestCherySafety(SafetyTest):
     # Wrong bus, wrong length.
     self.assertFalse(self._tx(self._button_msg(bus=0, RES_PLUS=1)))
     self.assertFalse(self._tx(self._button_msg(length=5, RES_PLUS=1)))
-    # RES+ doubles as "raise set speed", so it is confined to a stopped car.
+    # ICBM adjusts the set speed while moving with the ACC active.
     self._rx_field(0x316, fr=100, fl=100)
-    self.assertFalse(self._tx(self._button_msg(RES_PLUS=1)))
-    self._rx_field(0x316, fr=0, fl=0)
-    # No other button may ride along.
-    for button in ("ACC", "CC_BTN", "RES_MINUS", "GAP_ADJUST_UP", "GAP_ADJUST_DOWN"):
+    self.assertTrue(self._tx(self._button_msg(RES_PLUS=1)))
+    self.assertTrue(self._tx(self._button_msg(RES_MINUS=1)))
+    self.assertFalse(self._tx(self._button_msg(RES_PLUS=1, RES_MINUS=1)))
+    # Cancel, main and gap are never host-sent.
+    for button in ("ACC", "CC_BTN", "GAP_ADJUST_UP", "GAP_ADJUST_DOWN"):
+      self.assertFalse(self._tx(self._button_msg(**{button: 1})), button)
       self.assertFalse(self._tx(self._button_msg(RES_PLUS=1, **{button: 1})), button)
     self._rx_field(0x3A5, active=0)
+    self.assertFalse(self._tx(self._button_msg(RES_PLUS=1)))
+    self.assertFalse(self._tx(self._button_msg(RES_MINUS=1)))
+
+  def test_standstill_hold_allows_resume_but_not_set(self):
+    """In the hold ACC_ACTIVE is 0, where RES+ resumes but RES- would SET a new engagement."""
+    self._engage()
+    self._rx_field(0x316, fr=0, fl=0)
+    self._rx_field(0x3A2, state=2, stopped=1)
+    self._rx_field(0x3A5, active=0)
+    self.assertTrue(self.safety.get_controls_allowed())
+    self.assertTrue(self._tx(self._button_msg(RES_PLUS=1)))
+    self.assertFalse(self._tx(self._button_msg(RES_MINUS=1)))
+    # Rolling without an active ACC, RES+ is not a resume either.
+    self._rx_field(0x316, fr=100, fl=100)
     self.assertFalse(self._tx(self._button_msg(RES_PLUS=1)))
 
   def test_hud_forwarding_and_transmission(self):

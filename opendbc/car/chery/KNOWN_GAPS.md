@@ -21,10 +21,14 @@ Future evidence required:
   measurements.
 - Stock AEB interaction requires hardware validation.
 - Stage C3, Panda bench, and controlled-drive validation before expanding support.
-- `RES_PLUS` TX is now allowed on `0x360`, camera bus only, and only while the car
-  is stopped with controls authorized and no other button bit asserted. The tap
-  cadence (4 frames on, 10 off, at 20Hz) is taken from the driver's own measured
-  presses. Neither the cadence nor the TX path has been confirmed on-vehicle.
+- `0x360` TX carries `RES_PLUS` (resume from a stopped hold, or +set speed) and
+  `RES_MINUS` (-set speed), camera bus only, with controls authorized and no cancel,
+  main or gap bit. `RES_MINUS` requires `ACC_ACTIVE`, since at 0 it is SET and
+  engages the ACC; `RES_PLUS` requires `ACC_ACTIVE` or a stopped car. ICBM and resume
+  share one tap cadence (4 frames on, 10 off, at 20Hz) taken from the driver's
+  measured resume presses. No route yet has driver +/- taps with the ACC active, so
+  kph per tap, auto-repeat on a held press, and whether the camera accepts spoofed
+  presses while moving are all unconfirmed.
 - Driver torque override is enforced at `abs(TORQUE_DRIVER) > 70` with one second
   of hysteresis either way. `TORQUE_DRIVER`'s sign is still unverified, so only its
   magnitude is used, and the threshold itself needs owner-labeled stationary

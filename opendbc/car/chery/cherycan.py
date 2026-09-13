@@ -94,7 +94,8 @@ def create_lkas_state_hud(packer, bus: int, stock_values: dict, lkas_active: boo
   return packer.make_can_msg("LKAS_STATE", bus, values)
 
 
-def create_button_control(packer, bus: int, frame: int, stock_values: dict, cancel: bool = False, resume: bool = False):
+def create_button_control(packer, bus: int, frame: int, stock_values: dict, cancel: bool = False, resume: bool = False,
+                          decrease: bool = False):
   values = {name: stock_values[name] for name in (
     "ACC", "CC_BTN", "RES_PLUS", "RES_MINUS", "NEW_SIGNAL_1",
     "GAP_ADJUST_UP", "GAP_ADJUST_DOWN",
@@ -102,6 +103,7 @@ def create_button_control(packer, bus: int, frame: int, stock_values: dict, canc
   values.update({
     "ACC": 1 if cancel else 0,
     "RES_PLUS": 1 if resume else 0,
+    "RES_MINUS": 1 if decrease else 0,
     "COUNTER": frame % 0x10,
   })
   _, dat, _ = packer.make_can_msg("STEER_BUTTON", bus, values)

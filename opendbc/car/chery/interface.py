@@ -40,4 +40,5 @@ class CarInterface(CarInterfaceBase):
                      car_fw: list[structs.CarParams.CarFw], alpha_long: bool, is_release_sp: bool, docs: bool) -> structs.CarParamsSP:
     CAN = CanBus(fingerprint=fingerprint)
     stock_cp.enableBsm = 0x4B1 in fingerprint[CAN.main] and 0x4B3 in fingerprint[CAN.main]
+    ret.intelligentCruiseButtonManagementAvailable = True
     return ret

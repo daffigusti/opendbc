@@ -168,15 +168,18 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
   }
 
   if (msg->addr == 0x360U) {
-    // Resume taps only. RES+ doubles as "raise set speed" while the ACC is active, so this is
-    // confined to a stopped car with controls already authorized, and no other button bit may
-    // be asserted.
+    // Resume taps and set-speed taps only, with controls authorized. RES+ is resume from a stopped
+    // hold or +set speed while ACC is active. RES- is -set speed while active but SET (engage)
+    // while not, so it requires an active ACC. Cancel, main and gap bits are never host-sent.
     if (!chery_health_ready() || msg->bus != 2U || GET_LEN(msg) != 6U) {
       return false;
     }
-    const bool other_buttons = GET_BIT(msg, 24U) || GET_BIT(msg, 26U) || GET_BIT(msg, 32U) ||
-                               GET_BIT(msg, 43U) || GET_BIT(msg, 45U);
-    return controls_allowed && !vehicle_moving && !other_buttons;
+    const bool res_plus = GET_BIT(msg, 30U);
+    const bool res_minus = GET_BIT(msg, 32U);
+    const bool other_buttons = GET_BIT(msg, 24U) || GET_BIT(msg, 26U) || GET_BIT(msg, 43U) || GET_BIT(msg, 45U);
+    const bool plus_ok = !res_plus || chery_acc_active || !vehicle_moving;
+    const bool minus_ok = !res_minus || chery_acc_active;
+    return controls_allowed && !other_buttons && !(res_plus && res_minus) && plus_ok && minus_ok;
   }
 
   if (msg->addr == 0x307U) {

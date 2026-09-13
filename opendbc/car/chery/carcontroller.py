@@ -7,11 +7,13 @@ from opendbc.car.chery.values import CarControllerParams
 from opendbc.car.lateral import apply_steer_angle_limits_vm
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.vehicle_model import VehicleModel
+from opendbc.sunnypilot.car.chery.icbm import IntelligentCruiseButtonManagementInterface
 
 
-class CarController(CarControllerBase):
+class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterface):
   def __init__(self, dbc_names, CP, CP_SP):
-    super().__init__(dbc_names, CP, CP_SP)
+    CarControllerBase.__init__(self, dbc_names, CP, CP_SP)
+    IntelligentCruiseButtonManagementInterface.__init__(self, CP, CP_SP)
     self.CAN = CanBus(CP)
     self.packer = CANPacker(dbc_names[Bus.pt])
     self.VM = VehicleModel(CP)
@@ -108,6 +110,8 @@ class CarController(CarControllerBase):
       can_sends.append(create_lkas_state_hud(self.packer, self.CAN.main, CS.lkas_state, self.lkas_active_last))
 
     self._update_resume(CC, CS, can_sends)
+    if not CC.cruiseControl.resume:
+      can_sends.extend(IntelligentCruiseButtonManagementInterface.update(self, CC_SP, CS, self.packer, self.frame, self.CAN))
 
     if self.CP.openpilotLongitudinalControl and self.frame % CarControllerParams.ACC_CONTROL_STEP == 0:
       # CMD=400 is the OEM's standstill brake, so it may only go out once the car has actually

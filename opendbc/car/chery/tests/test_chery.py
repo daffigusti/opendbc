@@ -756,3 +756,61 @@ def test_eps_fault_latches_only_after_a_sustained_dead_servo():
   assert state.steerFaultTemporary is False
   state = drive_eps(car_state, parsers, packer, -1, False, timeout + 1)
   assert state.steerFaultTemporary is False
+
+
+def make_icbm_control(send_button):
+  control = structs.CarControlSP()
+  control.intelligentCruiseButtonManagement.sendButton = send_button
+  return control
+
+
+def decode_buttons(messages):
+  parser = CANParser("chery_canfd", [("STEER_BUTTON", 2)], 2)
+  out = []
+  for message in messages:
+    parser.update([[0, [message]]])
+    out.append((parser.vl["STEER_BUTTON"]["RES_PLUS"], parser.vl["STEER_BUTTON"]["RES_MINUS"]))
+  return out
+
+
+@pytest.mark.parametrize("send_button, expected", [
+  (structs.IntelligentCruiseButtonManagement.SendButtonState.increase, (1, 0)),
+  (structs.IntelligentCruiseButtonManagement.SendButtonState.decrease, (0, 1)),
+])
+def test_icbm_taps_set_speed_buttons_while_acc_active(send_button, expected):
+  controller = make_controller()
+  state = make_state(0.0, 10.0, acc_active=True)
+  messages = []
+  for frame in range(140):
+    _actuators, sends = controller.update(make_resume_control(False), make_icbm_control(send_button), state, frame * 10_000_000)
+    messages += [send for send in sends if send[0] == 0x360]
+  assert all(bus == 2 for _addr, _data, bus in messages)
+  # Same tap cadence as resume: 4 frames on per 14-frame cycle, two cycles.
+  assert decode_buttons(messages) == [expected] * 8
+
+
+def test_icbm_sends_nothing_without_an_active_acc():
+  """RES- at ACC_ACTIVE 0 is SET and would engage the ACC."""
+  controller = make_controller()
+  state = make_state(0.0, 10.0, acc_active=False)
+  decrease = structs.IntelligentCruiseButtonManagement.SendButtonState.decrease
+  for frame in range(60):
+    _actuators, sends = controller.update(make_resume_control(False), make_icbm_control(decrease), state, frame * 10_000_000)
+    assert not button_frames(sends)
+
+
+def test_icbm_yields_to_resume():
+  controller = make_controller()
+  state = make_state(0.0, 0.0, standstill=True, acc_active=False)
+  decrease = structs.IntelligentCruiseButtonManagement.SendButtonState.decrease
+  messages = []
+  for frame in range(40):
+    _actuators, sends = controller.update(make_resume_control(True), make_icbm_control(decrease), state, frame * 10_000_000)
+    messages += button_frames(sends)
+  assert messages and all(values == (1, 0) for values in decode_buttons(messages))
+
+
+def test_icbm_available():
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  cp_sp = CarInterface.get_non_essential_params_sp(cp, CAR.CHERY_OMODA_E5)
+  assert cp_sp.intelligentCruiseButtonManagementAvailable

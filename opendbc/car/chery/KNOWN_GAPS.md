@@ -44,9 +44,15 @@ Future evidence required:
 - `LKAS_STATE` (`0x307`) is now transmitted by openpilot and the stock copy is
   blocked from forwarding once RX health is trusted. Cluster behaviour with the
   substituted frame is unverified.
-- `steerRatio` 14 and `steerActuatorDelay` 0.2 are carried over from the fork that
-  drives this car, not measured. Panda's `steer_ratio` must be changed with them or
+- `steerRatio` 17 is fitted from locationd yaw rate against measured wheel angle
+  on one 8-minute urban route (r=0.98, 16.8-17.2 across 11-32 kph); it has not been
+  checked above 32 kph. `steerActuatorDelay` 0.15 follows the 130ms command-to-angle
+  lag measured on the same route. Panda's `steer_ratio` must be changed with them or
   the VM angle limits diverge from the controller's.
+- A driver accelerator override is reported by the stock ACC as `ACC_STATE=1` and
+  `SETTING.ACC_AVAILABLE=3` with `ACC_ACTIVE` still 1. Both are treated as an
+  available ACC only while `ACC_ACTIVE` is 1 (and, in Panda, the pedal bit is set),
+  so lateral survives the override. Seen on three presses in one route.
 
 Publication rule: publish owner-provided evidence only after owner approval, and
 strip route IDs, URLs, tokens, VINs, locations, timestamps, and raw identifying

@@ -459,7 +459,9 @@ class TestCherySafety(SafetyTest):
       self._rx_field(address, **{field: 1})
       self.safety.set_controls_allowed(True)
       self.assertFalse(self._tx(self._acc_cmd_msg(511)), field)
-      self.assertFalse(self._tx(self._acc_cmd_msg(-24)), field)
+      # The accelerator is an override: stock's inactive command still goes out. Brake and AEB
+      # untrust RX health and block the frame entirely.
+      self.assertEqual(self._tx(self._acc_cmd_msg(-24)), field == "acc_gas", field)
     self.setUp()
     self._enable_longitudinal()
     self.safety.set_controls_allowed(True)
@@ -795,7 +797,7 @@ class TestCherySafety(SafetyTest):
     self.assertTrue(self.safety.get_controls_allowed())
 
   def test_each_inhibitor_revokes_and_stays_revoked(self):
-    for field, address, value in (("brake", 0x03E, 1), ("acc_gas", 0x3A2, 1), ("aeb", 0x3A5, 1)):
+    for field, address, value in (("brake", 0x03E, 1), ("aeb", 0x3A5, 1)):
       for speed in (0, 100) if field == "brake" else (100,):
         self.setUp()
         self._seed_all()
@@ -817,6 +819,34 @@ class TestCherySafety(SafetyTest):
         self._rx_field(0x3A2, state=2)
         self._rx_field(0x3A5, active=1)
         self.assertTrue(self.safety.get_controls_allowed())
+
+  def test_gas_override_keeps_lateral_controls(self):
+    """On a driver accelerator override the stock ACC reports ACC_STATE=1 with ACC_ACTIVE still 1."""
+    self._engage()
+    self._rx_field(0x3A2, state=1, acc_gas=1)
+    self.assertTrue(self.safety.get_controls_allowed())
+    self.assertTrue(self._tx(self._angle_cmd_msg(0, False)))
+    self._rx_field(0x3A2, state=3, acc_gas=0)
+    self.assertTrue(self.safety.get_controls_allowed())
+
+  def test_acc_state_off_without_pedal_still_disengages(self):
+    self._engage()
+    self._rx_field(0x3A2, state=1, acc_gas=0)
+    self.assertFalse(self.safety.get_controls_allowed())
+
+  def test_gas_override_cannot_engage_controls(self):
+    self._seed_all()
+    self._validate_config()
+    self._rx_field(0x3A2, state=1, acc_gas=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+
+  def test_gas_override_blocks_host_longitudinal(self):
+    self._enable_longitudinal()
+    self._engage()
+    self._rx_field(0x3A2, state=1, acc_gas=1)
+    self.assertTrue(self.safety.get_controls_allowed())
+    self.assertFalse(self._tx(self._acc_cmd_msg(100)))
+    self.assertTrue(self._tx(self._acc_cmd_msg(-24)))
 
   def test_gas_comes_only_from_the_camera_pedal_bit(self):
     # ENGINE_DATA.GAS is a drivetrain torque request whose distribution is identical under ACC

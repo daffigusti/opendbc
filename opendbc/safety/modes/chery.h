@@ -58,7 +58,9 @@ static void chery_apply_inhibitors(void) {
   // A live condition, not a latch. The previous version cleared only when ACC_ACTIVE dropped, so
   // a single brake tap during a standstill hold -- where ACC_ACTIVE is already 0 and the
   // engagement is held alive by STOPPED -- blocked every transmission until the ACC was cycled.
-  chery_inhibited = brake_pressed || gas_pressed || chery_stock_aeb;
+  // The accelerator is an override, not a disengagement: it only blocks host longitudinal, which
+  // the ACC_CMD transmit check enforces on its own.
+  chery_inhibited = brake_pressed || chery_stock_aeb;
   if (chery_inhibited) {
     controls_allowed = false;
   }
@@ -95,9 +97,12 @@ static void chery_rx_hook(const CANPacket_t *msg) {
     brake_pressed = GET_BIT(msg, 220U);
   } else if (msg->addr == 0x3A2U) {
     const uint8_t state = msg->data[1] & 0x03U;
-    chery_acc_available = (state == 2U) || (state == 3U);
-    acc_main_on = chery_acc_available;
     chery_acc_gas = GET_BIT(msg, 47U);
+    // ACC_STATE drops to 1 while the driver overrides with the accelerator, with ACC_ACTIVE still
+    // 1 and the pedal bit set. That is still an available ACC. Without the pedal bit, 1 is off.
+    const bool gas_override = (state == 1U) && chery_acc_gas && chery_acc_active;
+    chery_acc_available = (state == 2U) || (state == 3U) || gas_override;
+    acc_main_on = chery_acc_available;
     chery_acc_stopped = GET_BIT(msg, 10U);
     chery_pcm_cruise_check();
   } else if (msg->addr == 0x3A5U) {
@@ -117,7 +122,7 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
   };
   static const AngleSteeringParams CHERY_STEERING_PARAMS = {
     .slip_factor = -0.000637749883,
-    .steer_ratio = 14.0,
+    .steer_ratio = 17.0,
     .wheelbase = 2.63,
   };
 

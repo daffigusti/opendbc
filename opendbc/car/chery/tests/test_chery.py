@@ -447,13 +447,19 @@ def test_engine_gear_values_parse(gear, expected):
   assert state.gearShifter == expected
 
 
-@pytest.mark.parametrize("available, expected", [(0, False), (1, True), (2, True), (3, False)])
-def test_acc_available_values(available, expected):
+# ACC_AVAILABLE reads 3 during a driver accelerator override, while ACC_ACTIVE stays 1.
+@pytest.mark.parametrize("available, acc_active, expected", [
+  (0, 0, False), (1, 0, True), (2, 0, True), (3, 0, False), (3, 1, True), (0, 1, False),
+])
+def test_acc_available_values(available, acc_active, expected):
   cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
   parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
   packer = CANPacker("chery_canfd")
-  address, data, bus = packer.make_can_msg("SETTING", parsers[Bus.cam].bus, {"ACC_AVAILABLE": float(available)})
-  parsers[Bus.cam].update([[0, [(address, data, bus)]]])
+  frames = []
+  for message, values in (("SETTING", {"ACC_AVAILABLE": float(available)}), ("ACC", {"ACC_ACTIVE": float(acc_active)})):
+    address, data, bus = packer.make_can_msg(message, parsers[Bus.cam].bus, values)
+    frames.append((address, data, bus))
+  parsers[Bus.cam].update([[0, frames]])
   state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
   assert state.cruiseState.available is expected
 

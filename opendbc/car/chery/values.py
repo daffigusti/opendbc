@@ -16,7 +16,10 @@ class CarControllerParams:
   ACC_CONTROL_STEP = 2
   BUTTONS_STEP = 5
   LKAS_HUD_STEP = 5
-  ANGLE_LIMITS = AngleSteeringLimitsVM(STEER_ANGLE_MAX=150., MAX_ANGLE_RATE=5.)
+  # MAX_ANGLE_RATE only binds below ~32 kph, where the VM jerk limit is looser. At 5 deg/frame
+  # (250 deg/s) an engagement onto a 22 deg request stepped the wheel 23 deg in 80ms. The sharpest
+  # turn-in openpilot asked for in real routes needed ~75 deg/s, so 100 deg/s leaves it untouched.
+  ANGLE_LIMITS = AngleSteeringLimitsVM(STEER_ANGLE_MAX=150., MAX_ANGLE_RATE=2.)
   ACCEL_MIN = -3.5
   ACCEL_MAX = 2.0
   RAW_ACCEL_MIN = -511
@@ -60,7 +63,10 @@ class CheryPlatformConfig(PlatformConfig):
 class CAR(Platforms):
   CHERY_OMODA_E5 = CheryPlatformConfig(
     [CheryCarDocs("Chery Omoda E5 2024", video="https://youtu.be/9kGGh8sLcHc")],
-    CarSpecs(mass=1785., wheelbase=2.63, steerRatio=14., centerToFrontRatio=0.44)
+    # steerRatio fitted from locationd yaw rate against measured wheel angle (r=0.98, 4100 samples,
+    # 16.8-17.2 across 11-32 kph). At 14, cars achieved 92% of requested curvature in turns and
+    # paramsd was still crawling upward at 15.6. Panda's steer_ratio must match.
+    CarSpecs(mass=1785., wheelbase=2.63, steerRatio=17., centerToFrontRatio=0.44)
   )
 
 

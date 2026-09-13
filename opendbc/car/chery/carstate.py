@@ -117,7 +117,10 @@ class CarState(CarStateBase):
     # one the working fork runs with; see KNOWN_GAPS.md.
     ret.steeringPressed = abs(ret.steeringTorque) > CarControllerParams.STEER_THRESHOLD
 
-    ret.cruiseState.available = cp_cam.vl["SETTING"]["ACC_AVAILABLE"] in (1, 2)
+    # ACC_AVAILABLE reads 3 while the driver overrides with the accelerator and ACC_ACTIVE stays
+    # 1. Treating that as unavailable raised wrongCarMode and dropped lateral on every gas press.
+    acc_available = cp_cam.vl["SETTING"]["ACC_AVAILABLE"]
+    ret.cruiseState.available = acc_available in (1, 2) or (acc_available == 3 and self.acc_active)
     ret.cruiseState.enabled = bool(cp_cam.vl["ACC"]["ACC_ACTIVE"] or cp_cam.vl["ACC_CMD"]["STOPPED"])
     ret.cruiseState.speed = cp_cam.vl["SETTING"]["CC_SPEED"] * CV.KPH_TO_MS
     # The stock ACC drops ACC_ACTIVE ~3s into a standstill hold and then ignores ACC_CMD gas

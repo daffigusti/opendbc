@@ -94,7 +94,7 @@ def create_lkas_state_hud(packer, bus: int, stock_values: dict, lkas_active: boo
   return packer.make_can_msg("LKAS_STATE", bus, values)
 
 
-def create_button_control(packer, bus: int, frame: int, stock_values: dict, cancel: bool = False, resume: bool = False,
+def create_button_control(packer, bus: int, stock_values: dict, cancel: bool = False, resume: bool = False,
                           decrease: bool = False):
   values = {name: stock_values[name] for name in (
     "ACC", "CC_BTN", "RES_PLUS", "RES_MINUS", "NEW_SIGNAL_1",
@@ -104,7 +104,8 @@ def create_button_control(packer, bus: int, frame: int, stock_values: dict, canc
     "ACC": 1 if cancel else 0,
     "RES_PLUS": 1 if resume else 0,
     "RES_MINUS": 1 if decrease else 0,
-    "COUNTER": frame % 0x10,
+    # The wheel's own frame keeps reaching the camera, so continue its counter rather than run a second one.
+    "COUNTER": (int(stock_values["COUNTER"]) + 1) % 0x10,
   })
   _, dat, _ = packer.make_can_msg("STEER_BUTTON", bus, values)
   values["CHECKSUM"] = calculate_crc(dat[1:])

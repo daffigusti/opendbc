@@ -56,7 +56,7 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
       self.cancel_counter = 0
       return
     if self.cancel_counter % CarControllerParams.RESUME_TAP_PERIOD < CarControllerParams.RESUME_TAP_FRAMES:
-      can_sends.append(create_button_control(self.packer, self.CAN.camera, self.frame,
+      can_sends.append(create_button_control(self.packer, self.CAN.camera,
                                              CS.buttons_stock_values, cancel=True))
     self.cancel_counter += 1
 
@@ -77,7 +77,7 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
       self.resume_counter = 0
       return
     if self.resume_counter % CarControllerParams.RESUME_TAP_PERIOD < CarControllerParams.RESUME_TAP_FRAMES:
-      can_sends.append(create_button_control(self.packer, self.CAN.camera, self.frame,
+      can_sends.append(create_button_control(self.packer, self.CAN.camera,
                                              CS.buttons_stock_values, resume=True))
     self.resume_counter += 1
 

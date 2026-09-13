@@ -74,14 +74,14 @@ def test_button_captured_frames(fixture, frame):
   captured = GOLDEN_FRAMES[(0x360, 0)][fixture]
   parser = CANParser("chery_canfd", [("STEER_BUTTON", 2)], 2)
   parser.update([[0, [(0x360, captured, 2)]]])
-  stock = parser.vl["STEER_BUTTON"]
-  _, dat, bus = create_button_control(packer, 2, frame, stock)
+  stock = {**parser.vl["STEER_BUTTON"], "COUNTER": frame - 1}
+  _, dat, bus = create_button_control(packer, 2, stock)
   assert (dat, bus) == (captured, 2)
   assert dat[0] == (0x33, 0xDD)[fixture]
   assert dat[0] == calculate_crc(dat[1:])
 
 
-def test_counter_wraps_at_four_bits():
+def test_button_counter_follows_stock_and_wraps():
   packer = CANPacker("chery_canfd")
   stock = {name: 0 for name in (
     "ACC", "CC_BTN", "RES_PLUS", "RES_MINUS", "NEW_SIGNAL_1",
@@ -89,8 +89,8 @@ def test_counter_wraps_at_four_bits():
   )}
   parser = CANParser("chery_canfd", [("STEER_BUTTON", 2)], 2)
   counters = []
-  for frame in (14, 15, 16):
-    address, dat, bus = create_button_control(packer, 2, frame, stock)
+  for stock_counter in (13, 14, 15):
+    address, dat, bus = create_button_control(packer, 2, {**stock, "COUNTER": stock_counter})
     parser.update([[0, [(address, dat, bus)]]])
     counters.append(parser.vl["STEER_BUTTON"]["COUNTER"])
   assert counters == [14, 15, 0]

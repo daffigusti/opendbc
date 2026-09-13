@@ -148,7 +148,7 @@ def make_state(measured_angle: float, speed: float = 1.0, front_wheel_speed: flo
     acc_cmd={},
     buttons_stock_values={name: 0 for name in (
       "ACC", "CC_BTN", "RES_PLUS", "RES_MINUS", "NEW_SIGNAL_1",
-      "GAP_ADJUST_UP", "GAP_ADJUST_DOWN",
+      "GAP_ADJUST_UP", "GAP_ADJUST_DOWN", "COUNTER",
     )},
   )
 
@@ -206,7 +206,7 @@ def decode_steering_message(message):
 
 def test_lateral_first_frame_outside_angle_limit_stays_inactive():
   controller = make_controller()
-  measured_angle = 151.0
+  measured_angle = 301.0
   actuators, sends = controller.update(make_control(True, 80.0), structs.CarControlSP(), make_state(measured_angle), 0)
 
   steering_message = next(send for send in sends if send[0] == 0x345)
@@ -307,11 +307,11 @@ def test_lateral_transition_outside_angle_limit_stays_inactive_until_in_range():
   controller = make_controller()
   control = make_control(True, 80.0)
 
-  actuators, sends = controller.update(control, structs.CarControlSP(), make_state(-151.0), 0)
+  actuators, sends = controller.update(control, structs.CarControlSP(), make_state(-301.0), 0)
   values = decode_steering_message(next(send for send in sends if send[0] == 0x345))
   assert values["LKA_ACTIVE"] == 0
-  assert values["CMD"] == round(-151.0 * 10 - 392)
-  assert actuators.steeringAngleDeg == -151.0
+  assert values["CMD"] == round(-301.0 * 10 - 392)
+  assert actuators.steeringAngleDeg == -301.0
 
   controller.update(control, structs.CarControlSP(), make_state(0.0), 10_000_000)
   actuators, sends = controller.update(control, structs.CarControlSP(), make_state(0.0), 20_000_000)

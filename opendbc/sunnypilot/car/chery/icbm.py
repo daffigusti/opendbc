@@ -40,7 +40,7 @@ class IntelligentCruiseButtonManagementInterface(IntelligentCruiseButtonManageme
     # with driver +/- taps at ACC_ACTIVE 1 if presses are dropped or overshoot.
     if self.button_frame % CarControllerParams.RESUME_TAP_PERIOD < CarControllerParams.RESUME_TAP_FRAMES:
       increase = self.ICBM.sendButton == SendButtonState.increase
-      can_sends.append(create_button_control(packer, CAN.camera, self.frame, CS.buttons_stock_values,
+      can_sends.append(create_button_control(packer, CAN.camera, CS.buttons_stock_values,
                                              resume=increase, decrease=not increase))
     self.button_frame += 1
     return can_sends

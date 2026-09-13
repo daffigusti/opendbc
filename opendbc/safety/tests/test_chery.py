@@ -694,13 +694,35 @@ class TestCherySafety(SafetyTest):
     self.assertTrue(self._tx(self._button_msg(RES_PLUS=1)))
     self.assertTrue(self._tx(self._button_msg(RES_MINUS=1)))
     self.assertFalse(self._tx(self._button_msg(RES_PLUS=1, RES_MINUS=1)))
-    # Cancel, main and gap are never host-sent.
-    for button in ("ACC", "CC_BTN", "GAP_ADJUST_UP", "GAP_ADJUST_DOWN"):
+    # Main and gap are never host-sent; cancel never rides along with another button.
+    for button in ("CC_BTN", "GAP_ADJUST_UP", "GAP_ADJUST_DOWN"):
       self.assertFalse(self._tx(self._button_msg(**{button: 1})), button)
       self.assertFalse(self._tx(self._button_msg(RES_PLUS=1, **{button: 1})), button)
+    self.assertFalse(self._tx(self._button_msg(ACC=1, RES_PLUS=1)))
     self._rx_field(0x3A5, active=0)
     self.assertFalse(self._tx(self._button_msg(RES_PLUS=1)))
     self.assertFalse(self._tx(self._button_msg(RES_MINUS=1)))
+
+  def test_cancel_requires_an_active_acc(self):
+    """The ACC button engages the ACC when it is off, so it may only go out while ACC_ACTIVE is 1."""
+    self._engage()
+    self._rx_field(0x316, fr=100, fl=100)
+    self.assertTrue(self._tx(self._button_msg(ACC=1)))
+    self.assertFalse(self._tx(self._button_msg(bus=0, ACC=1)))
+    # Allowed without controls and while braking, so a disengaged openpilot can cancel.
+    self._rx_field(0x03E, brake=1)
+    self.assertFalse(self.safety.get_controls_allowed())
+    self.assertTrue(self._tx(self._button_msg(ACC=1)))
+    self._rx_field(0x03E, brake=0)
+    self._rx_field(0x3A5, active=0)
+    self.assertFalse(self._tx(self._button_msg(ACC=1)))
+
+  def test_cancel_blocked_on_untrusted_rx(self):
+    self._engage()
+    bad = self._packet(0x3A5, 2)
+    bad.data[7] ^= 1
+    self.assertFalse(self._rx(bad))
+    self.assertFalse(self._tx(self._button_msg(ACC=1)))
 
   def test_standstill_hold_allows_resume_but_not_set(self):
     """In the hold ACC_ACTIVE is 0, where RES+ resumes but RES- would SET a new engagement."""

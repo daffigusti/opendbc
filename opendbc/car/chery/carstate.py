@@ -29,6 +29,8 @@ class CarState(CarStateBase):
     self.acc_active = False
     self.lkas_state = {}
     self.eps_dead_frames = 0
+    self.steer_angle_hr_last = 0.0
+    self.steer_rate_sign = 1
 
   @staticmethod
   def get_can_parsers(CP, CP_SP):
@@ -36,7 +38,7 @@ class CarState(CarStateBase):
       ("STEER_ANGLE_SENSOR", 100), ("WHEEL_SPEED_FRNT", 50),
       ("WHEEL_SPEED_REAR", 50), ("BRAKE_DATA", 50), ("ENGINE_DATA", 100),
       ("STEER_SENSOR_2", 50), ("STEER_BUTTON", 20),
-      ("BCM_SIGNAL_1", 50), ("LKAS", 100), ("NEW_MSG_430", 50),
+      ("BCM_SIGNAL_1", 50), ("LKAS", 100), ("NEW_MSG_430", 50), ("STEER_SENSOR", 100),
     ]
     if CP.enableBsm:
       pt_messages += [("BSM_LEFT", 10), ("BSM_RIGHT", 10)]
@@ -86,6 +88,18 @@ class CarState(CarStateBase):
       self.eps_dead_frames = 0
     return self.eps_dead_frames >= CarControllerParams.STEER_TIMEOUT
 
+  def _steering_rate(self, steer_sensor) -> float:
+    """STEER_SENSOR.STEER_RATE is unsigned; the direction comes from its high-resolution angle.
+
+    Fitted on 45k frames of a real route: |rate| = 4 deg/s per LSB (r=0.992), and STEER_ANGLE_HR
+    matches STEER_ANGLE at 0.0625 deg per LSB (r=1.000). The sign is held while the angle is still.
+    """
+    angle = steer_sensor["STEER_ANGLE_HR"]
+    if angle != self.steer_angle_hr_last:
+      self.steer_rate_sign = 1 if angle > self.steer_angle_hr_last else -1
+    self.steer_angle_hr_last = angle
+    return self.steer_rate_sign * steer_sensor["STEER_RATE"]
+
   def update(self, can_parsers) -> tuple[structs.CarState, structs.CarStateSP]:
     cp = can_parsers[Bus.pt]
     cp_cam = can_parsers[Bus.cam]
@@ -113,6 +127,7 @@ class CarState(CarStateBase):
     ret.steeringAngleDeg = cp.vl["STEER_ANGLE_SENSOR"]["STEER_ANGLE"]
     ret.steeringTorque = cp.vl["STEER_SENSOR_2"]["TORQUE_DRIVER"]
     ret.steeringTorqueEps = cp.vl["STEER_ANGLE_SENSOR"]["TORQUE"]
+    ret.steeringRateDeg = self._steering_rate(cp.vl["STEER_SENSOR"])
     # TORQUE_DRIVER's sign is unverified, so only its magnitude is used. The threshold is the
     # one the working fork runs with; see KNOWN_GAPS.md.
     ret.steeringPressed = abs(ret.steeringTorque) > CarControllerParams.STEER_THRESHOLD

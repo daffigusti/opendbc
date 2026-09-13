@@ -58,6 +58,19 @@ Future evidence required:
   signal exists; Panda leaves `acc_main_on` false. MADS lateral engages with the ACC,
   survives an ACC cancel or unavailability, and is forced to disengage on brake. No
   LKAS toggle button has been identified, so lateral cannot be engaged without the ACC.
+- `STEER_SENSOR` (`0xC4`) was re-decoded from a real route: `STEER_ANGLE_HR` is
+  wheel angle at 0.0625 deg per LSB (r=1.000 against `STEER_ANGLE`) and `STEER_RATE`
+  is an unsigned rate at 4 deg/s per LSB (r=0.992). `steeringRateDeg` takes its sign
+  from the high-resolution angle; the sign agrees with the differentiated angle on
+  98.8% of frames above 20 deg/s.
+- Cancel taps `STEER_BUTTON.ACC` (`0x360` bit 24) on the camera bus, only while
+  `ACC_ACTIVE` is 1. The button toggles the ACC, so the same press engages it when off.
+  Panda allows it without controls and while braking, but not on untrusted RX. The
+  cancel response time (0.1-0.25s) comes from driver presses; host presses are
+  unconfirmed.
+- The driver's labelled captures place EPS-fault candidates in `0x40F` byte 0
+  (`0xD5` at both logged steer failures) and EPB/auto hold/HDC in `0x537`,
+  `0x51D` and `0x502`. None is parsed yet.
 
 Publication rule: publish owner-provided evidence only after owner approval, and
 strip route IDs, URLs, tokens, VINs, locations, timestamps, and raw identifying

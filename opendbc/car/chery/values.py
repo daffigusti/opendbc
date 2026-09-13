@@ -30,6 +30,9 @@ class CarControllerParams:
   # 0.19-0.24s taps the driver makes at ACC_ACTIVE 0 only resume. Tap it the way the driver does.
   RESUME_TAP_FRAMES = 4   # 4 button frames at 20Hz = 200ms
   RESUME_TAP_PERIOD = 14  # 700ms cycle, leaving a clear gap between taps
+  # Cancel reuses this cadence. STEER_BUTTON.ACC toggles the ACC, cancelling while active and engaging
+  # while not; on a real route ACC_ACTIVE dropped 0.1-0.25s after a press, well inside one cycle, so a
+  # second tap never lands on an already-cancelled ACC.
 
   # STEER_SENSOR_2.TORQUE_DRIVER is 0.24 units; 70 is the threshold the working fork ran with.
   # Unverified against a labelled stationary sweep -- see KNOWN_GAPS.md.

@@ -831,3 +831,58 @@ def test_seatbelt_bit_means_unlatched(seatbelt, expected):
   state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
   assert not state.doorOpen
   assert state.seatbeltUnlatched is expected
+
+
+def make_cancel_control():
+  control = structs.CarControl()
+  control.cruiseControl.cancel = True
+  return control.as_reader()
+
+
+def decode_cancel(messages):
+  parser = CANParser("chery_canfd", [("STEER_BUTTON", 2)], 2)
+  out = []
+  for message in messages:
+    parser.update([[0, [message]]])
+    out.append((parser.vl["STEER_BUTTON"]["ACC"], parser.vl["STEER_BUTTON"]["RES_PLUS"], parser.vl["STEER_BUTTON"]["RES_MINUS"]))
+  return out
+
+
+def test_cancel_taps_acc_button_while_active_and_beats_icbm():
+  controller = make_controller()
+  state = make_state(0.0, 10.0, acc_active=True)
+  increase = structs.IntelligentCruiseButtonManagement.SendButtonState.increase
+  messages = []
+  for frame in range(140):
+    _actuators, sends = controller.update(make_cancel_control(), make_icbm_control(increase), state, frame * 10_000_000)
+    messages += button_frames(sends)
+  assert all(bus == 2 for _addr, _data, bus in messages)
+  assert decode_cancel(messages) == [(1, 0, 0)] * 8
+
+
+def test_cancel_sends_nothing_once_acc_is_off():
+  """Pressing the ACC button with the ACC off would engage it."""
+  controller = make_controller()
+  state = make_state(0.0, 10.0, acc_active=False)
+  for frame in range(60):
+    _actuators, sends = controller.update(make_cancel_control(), structs.CarControlSP(), state, frame * 10_000_000)
+    assert not button_frames(sends)
+
+
+def test_steering_rate_takes_magnitude_from_rate_and_sign_from_angle():
+  cp, parsers, packer = state_fixture()
+  car_state = CarState(cp, structs.CarParamsSP())
+  rates = []
+  for angle, rate_raw in ((10.0, 0), (10.5, 20), (11.0, 20), (11.0, 5), (9.0, 30)):
+    feed(parsers, packer, Bus.pt, [("STEER_SENSOR", {"STEER_ANGLE_HR": angle, "STEER_RATE": rate_raw * 4})])
+    rates.append(car_state.update(parsers)[0].steeringRateDeg)
+  assert rates == [pytest.approx(0), pytest.approx(80), pytest.approx(80), pytest.approx(20), pytest.approx(-120)]
+
+
+def test_steer_sensor_matches_route_frame():
+  """0xC4 frame from a real route: 0x87cb is +124.7 deg, byte 2 = 1 is 4 deg/s."""
+  parser = CANParser("chery_canfd", [("STEER_SENSOR", 0)], 0)
+  parser.update([[0, [(0xC4, bytes.fromhex("87cb010c00c0008e"), 0)]]])
+  assert parser.vl["STEER_SENSOR"]["STEER_ANGLE_HR"] == pytest.approx((0x87cb - 0x8000) * 0.0625)
+  assert parser.vl["STEER_SENSOR"]["STEER_RATE"] == pytest.approx(4)
+  assert parser.vl["STEER_SENSOR"]["COUNTER"] == 0xc

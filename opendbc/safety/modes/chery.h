@@ -170,15 +170,26 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
   }
 
   if (msg->addr == 0x360U) {
-    // Resume taps and set-speed taps only, with controls authorized. RES+ is resume from a stopped
-    // hold or +set speed while ACC is active. RES- is -set speed while active but SET (engage)
-    // while not, so it requires an active ACC. Cancel, main and gap bits are never host-sent.
-    if (!chery_health_ready() || msg->bus != 2U || GET_LEN(msg) != 6U) {
+    if ((msg->bus != 2U) || (GET_LEN(msg) != 6U)) {
       return false;
     }
+    const bool acc_button = GET_BIT(msg, 24U);
     const bool res_plus = GET_BIT(msg, 30U);
     const bool res_minus = GET_BIT(msg, 32U);
-    const bool other_buttons = GET_BIT(msg, 24U) || GET_BIT(msg, 26U) || GET_BIT(msg, 43U) || GET_BIT(msg, 45U);
+    const bool other_buttons = GET_BIT(msg, 26U) || GET_BIT(msg, 43U) || GET_BIT(msg, 45U);
+    // Cancel: the ACC button toggles the ACC, cancelling while active and engaging while not, so it
+    // is only allowed alone and while ACC_ACTIVE is 1. It needs neither controls nor brake-free RX,
+    // so a disengaged openpilot can still take the stock ACC down, but it does need trusted RX,
+    // where ACC_ACTIVE cannot be stale.
+    if (acc_button) {
+      return !safety_rx_checks_invalid && chery_acc_active && !res_plus && !res_minus && !other_buttons;
+    }
+    // Resume taps and set-speed taps only, with controls authorized. RES+ is resume from a stopped
+    // hold or +set speed while ACC is active. RES- is -set speed while active but SET (engage)
+    // while not, so it requires an active ACC. Main and gap bits are never host-sent.
+    if (!chery_health_ready()) {
+      return false;
+    }
     const bool plus_ok = !res_plus || chery_acc_active || !vehicle_moving;
     const bool minus_ok = !res_minus || chery_acc_active;
     return controls_allowed && !other_buttons && !(res_plus && res_minus) && plus_ok && minus_ok;

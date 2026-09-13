@@ -21,6 +21,7 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     self.angle_command_skipped = False
     self.lkas_active_last = False
     self.resume_counter = 0
+    self.cancel_counter = 0
     self.steer_pressed_frames = 0
     self.steer_released_frames = 0
     self.steer_override = False
@@ -42,6 +43,22 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
       self.steer_override = True
     elif self.steer_released_frames * DT_CTRL > CarControllerParams.STEER_OVERRIDE_TIME:
       self.steer_override = False
+
+  def _update_cancel(self, CS, can_sends):
+    """Tap the ACC button to cancel the stock ACC.
+
+    The same button engages the ACC when it is off, so nothing is sent unless ACC_ACTIVE is 1 in the
+    freshest CarState, and the tap cadence leaves the ACC time to drop out before any second tap.
+    """
+    if self.frame % CarControllerParams.BUTTONS_STEP != 0:
+      return
+    if not CS.acc_active:
+      self.cancel_counter = 0
+      return
+    if self.cancel_counter % CarControllerParams.RESUME_TAP_PERIOD < CarControllerParams.RESUME_TAP_FRAMES:
+      can_sends.append(create_button_control(self.packer, self.CAN.camera, self.frame,
+                                             CS.buttons_stock_values, cancel=True))
+    self.cancel_counter += 1
 
   def _update_resume(self, CC, CS, can_sends):
     """Tap RES+ to get out of the stock ACC's standstill hold.
@@ -109,8 +126,12 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     if self.frame % CarControllerParams.LKAS_HUD_STEP == 0:
       can_sends.append(create_lkas_state_hud(self.packer, self.CAN.main, CS.lkas_state, self.lkas_active_last))
 
-    self._update_resume(CC, CS, can_sends)
-    if not CC.cruiseControl.resume:
+    if CC.cruiseControl.cancel:
+      self._update_cancel(CS, can_sends)
+    else:
+      self.cancel_counter = 0
+      self._update_resume(CC, CS, can_sends)
+    if not CC.cruiseControl.resume and not CC.cruiseControl.cancel:
       can_sends.extend(IntelligentCruiseButtonManagementInterface.update(self, CC_SP, CS, self.packer, self.frame, self.CAN))
 
     if self.CP.openpilotLongitudinalControl and self.frame % CarControllerParams.ACC_CONTROL_STEP == 0:

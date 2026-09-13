@@ -18,7 +18,8 @@ Table lists safety-critical subset used by safety hooks, not complete vehicle CA
 | TX | steering command `0x345` | 0 | 8 | 50 Hz |
 | TX | ACC command `0x3A2` (alpha-long) | 0 | 8 | 50 Hz |
 
-Active steering commands use a provisional +/-150 degree cap. Inactive steering
+Active steering commands use a +/-300 degree cap; above ~25 kph the vehicle-model
+lateral-acceleration limit binds before the cap does. Inactive steering
 commands support the representable range through +/-370.4 degrees. Stock
 steering is dynamically passed through when measured rack angle is outside
 that representable range. During detected stock AEB, OEM `0x3A2` is dynamically

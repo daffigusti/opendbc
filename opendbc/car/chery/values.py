@@ -19,7 +19,9 @@ class CarControllerParams:
   # MAX_ANGLE_RATE only binds below ~32 kph, where the VM jerk limit is looser. At 5 deg/frame
   # (250 deg/s) an engagement onto a 22 deg request stepped the wheel 23 deg in 80ms. The sharpest
   # turn-in openpilot asked for in real routes needed ~75 deg/s, so 100 deg/s leaves it untouched.
-  ANGLE_LIMITS = AngleSteeringLimitsVM(STEER_ANGLE_MAX=150., MAX_ANGLE_RATE=2.)
+  # STEER_ANGLE_MAX: the working fork drove at 300 for months; the 13-bit CMD encoding tops out at
+  # 370.4. Above ~25 kph the VM lateral-accel limit binds well before this cap does. Panda must match.
+  ANGLE_LIMITS = AngleSteeringLimitsVM(STEER_ANGLE_MAX=300., MAX_ANGLE_RATE=2.)
   ACCEL_MIN = -3.5
   ACCEL_MAX = 2.0
   RAW_ACCEL_MIN = -511

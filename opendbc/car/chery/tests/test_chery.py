@@ -331,11 +331,11 @@ def test_lateral_inactive_extreme_angle_is_not_transmitted(measured_angle):
   assert actuators.steeringAngleDeg == measured_angle
 
 
-def test_lateral_hard_cap_is_150_degrees():
+def test_lateral_hard_cap_is_300_degrees():
   controller = make_controller()
-  controller.apply_angle_last = 149.0
-  actuators, _sends = controller.update(make_control(True, 500.0), structs.CarControlSP(), make_state(149.0), 0)
-  assert abs(actuators.steeringAngleDeg) <= 150.
+  controller.apply_angle_last = 299.0
+  actuators, _sends = controller.update(make_control(True, 500.0), structs.CarControlSP(), make_state(299.0), 0)
+  assert abs(actuators.steeringAngleDeg) <= 300.
 
 
 def test_lateral_limits_use_front_wheel_mean_not_rear_speed():

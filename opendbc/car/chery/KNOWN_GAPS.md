@@ -39,9 +39,11 @@ Future evidence required:
   indistinguishable (38.8% vs 51.9% at zero, both saturating above 26000), so no
   threshold separates them; reading it as a press denied controls in 98%+ of
   ACC-engaged frames while protecting against nothing. `gas_pressed` now comes only
-  from the camera's `ACC_CMD.GAS_PRESSED` bit, which is set in under 1% of frames
-  even under full throttle. A real driver-pedal signal still has to be captured,
-  most likely from a bus not present in the current logs.
+  from the camera's `ACC_CMD.GAS_PRESSED` bit while `ACC_ACTIVE` is 1. Its low duty
+  cycle (under 1% of frames) is rare overrides, not a dropped signal: the owner
+  confirmed it stays 1 for the whole press, and `ACC.GAS_PRESSED` (`0x3A5`) rises with
+  it. With the ACC off no pedal signal exists, so the throttle threshold stands in;
+  openpilot is not engaged longitudinally then.
 - `ACC_CMD` full-stop uses the stock hold encoding (`CMD=400`, `ACCEL_ON=0`,
   `STOPPED=1`, `ACC_STATE=2`), derived from 10 hold episodes across 192 route
   segments. Panda permits it only while the car is already stopped. Not yet

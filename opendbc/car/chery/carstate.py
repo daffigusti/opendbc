@@ -27,6 +27,7 @@ class CarState(CarStateBase):
     self.brake_pos = 0
     self.front_wheel_speed = 0.0
     self.acc_active = False
+    self.cruise_enabled_prev = False
     self.lkas_state = {}
     self.eps_dead_frames = 0
     self.steer_angle_hr_last = 0.0
@@ -140,7 +141,14 @@ class CarState(CarStateBase):
     # 1. Treating that as unavailable raised wrongCarMode and dropped lateral on every gas press.
     acc_available = cp_cam.vl["SETTING"]["ACC_AVAILABLE"]
     ret.cruiseState.available = acc_available in (1, 2) or (acc_available == 3 and self.acc_active)
-    ret.cruiseState.enabled = bool(cp_cam.vl["ACC"]["ACC_ACTIVE"] or cp_cam.vl["ACC_CMD"]["STOPPED"])
+    # Mirror the panda's chery_pcm_cruise_check. The camera can abort with ACC_STATE=0 and STOPPED=1
+    # while ACC_ACTIVE still reads 1 for ~300ms; the panda drops controls on that frame, and if
+    # openpilot stayed engaged its blocked sends timed out the loopback parser and raised canError.
+    acc_state = cp_cam.vl["ACC_CMD"]["ACC_STATE"]
+    gas_override = acc_state == 1 and bool(cp_cam.vl["ACC_CMD"]["GAS_PRESSED"]) and self.acc_active
+    acc_engaged = self.acc_active or (bool(cp_cam.vl["ACC_CMD"]["STOPPED"]) and self.cruise_enabled_prev)
+    ret.cruiseState.enabled = acc_engaged and (acc_state in (2, 3) or gas_override)
+    self.cruise_enabled_prev = ret.cruiseState.enabled
     ret.cruiseState.speed = cp_cam.vl["SETTING"]["CC_SPEED"] * CV.KPH_TO_MS
     # The stock ACC drops ACC_ACTIVE ~3s into a standstill hold and then ignores ACC_CMD gas
     # until a RES+ press. Report that -- not plain vEgo -- as cruise standstill, so controlsd

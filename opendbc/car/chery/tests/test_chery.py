@@ -375,7 +375,7 @@ def test_chery_state_update_decodes_route_signals():
     ],
     Bus.cam: [
       ("ACC", {"ACC_ACTIVE": 1, "AEB_ACTIVE": 1}),
-      ("ACC_CMD", {"STOPPED": 0, "GAS_PRESSED": 1}),
+      ("ACC_CMD", {"STOPPED": 0, "GAS_PRESSED": 1, "ACC_STATE": 3}),
       ("SETTING", {"CC_SPEED": 72, "ACC_AVAILABLE": 1, "AEB_ACTIVE": 3}),
       ("LKAS_STATE", {"LKA_ACTIVE": 1}),
     ],
@@ -719,6 +719,34 @@ def test_cruise_standstill_tracks_the_stock_hold_not_vego(acc_active, stopped, e
   assert state.cruiseState.standstill is expected
 
 
+@pytest.mark.parametrize("acc_state, gas, expected", [
+  (3, 0, True),
+  (2, 0, True),
+  (1, 1, True),   # accelerator override keeps the ACC available
+  (1, 0, False),
+  (0, 0, False),  # route 00000483: camera abort with ACC_ACTIVE still 1
+])
+def test_cruise_enabled_follows_acc_state_like_the_panda(acc_state, gas, expected):
+  cp, parsers, packer = state_fixture()
+  feed(parsers, packer, Bus.cam, [
+    ("ACC", {"ACC_ACTIVE": 1.0}),
+    ("ACC_CMD", {"ACC_STATE": float(acc_state), "GAS_PRESSED": float(gas)}),
+  ])
+  state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
+  assert state.cruiseState.enabled is expected
+
+
+def test_stopped_only_holds_an_existing_engagement():
+  cp, parsers, packer = state_fixture()
+  car_state = CarState(cp, structs.CarParamsSP())
+  feed(parsers, packer, Bus.cam, [("ACC", {"ACC_ACTIVE": 0.0}), ("ACC_CMD", {"ACC_STATE": 2.0, "STOPPED": 1.0})])
+  assert not car_state.update(parsers)[0].cruiseState.enabled
+  feed(parsers, packer, Bus.cam, [("ACC", {"ACC_ACTIVE": 1.0}), ("ACC_CMD", {"ACC_STATE": 2.0, "STOPPED": 1.0})])
+  assert car_state.update(parsers)[0].cruiseState.enabled
+  feed(parsers, packer, Bus.cam, [("ACC", {"ACC_ACTIVE": 0.0}), ("ACC_CMD", {"ACC_STATE": 2.0, "STOPPED": 1.0})])
+  assert car_state.update(parsers)[0].cruiseState.enabled
+
+
 # TORQUE_DRIVER is quantised to 0.24, so the pair straddling the threshold is 69.84 / 70.08.
 @pytest.mark.parametrize("torque, expected", [(0, False), (69.84, False), (70.08, True), (-70.08, True)])
 def test_steering_pressed_uses_torque_magnitude(torque, expected):
@@ -735,7 +763,7 @@ def drive_eps(car_state, parsers, packer, lkas_cmd, commanding, frames):
       ("WHEEL_SPEED_REAR", {"WHEEL_SPEED_RR": 40, "WHEEL_SPEED_RL": 40}),
       ("LKAS", {"LKAS_CMD": float(lkas_cmd), "NEW_SIGNAL_1": 1}),
     ])
-    feed(parsers, packer, Bus.cam, [("ACC", {"ACC_ACTIVE": 1})])
+    feed(parsers, packer, Bus.cam, [("ACC", {"ACC_ACTIVE": 1}), ("ACC_CMD", {"ACC_STATE": 3})])
     feed(parsers, packer, Bus.loopback, [("LKAS_CAM_CMD_345", {"LKA_ACTIVE": float(commanding)})])
     state, _ = car_state.update(parsers)
   return state

@@ -43,15 +43,21 @@ BO_ 62 ENGINE_DATA: 48 XXX
  SG_ ACCEL : 38|15@0- (1,0) [0|255] "" XXX
  SG_ NEW_SIGNAL_8 : 39|1@0+ (1,0) [0|1] "" XXX
  SG_ NEW_SIGNAL_2 : 55|1@0+ (1,0) [0|1] "" XXX
+ SG_ ENGINE_DATA_CHECKSUM_1 : 64|8@1+ (1,0) [0|255] "" XXX
+ SG_ ENGINE_DATA_COUNTER_1 : 72|4@1+ (1,0) [0|15] "" XXX
  SG_ GAS_POS : 85|14@0+ (1,-600) [0|127] "" XXX
  SG_ NEW_SIGNAL_7 : 102|15@0+ (1,0) [0|32767] "" XXX
  SG_ NEW_SIGNAL_9 : 103|1@0+ (1,0) [0|1] "" XXX
  SG_ NEW_SIGNAL_6 : 118|15@0+ (1,0) [0|32767] "" XXX
  SG_ NEW_SIGNAL_13 : 119|1@0+ (1,0) [0|1] "" XXX
+ SG_ ENGINE_DATA_CHECKSUM_2 : 128|8@1+ (1,0) [0|255] "" XXX
+ SG_ ENGINE_DATA_COUNTER_2 : 136|4@1+ (1,0) [0|15] "" XXX
  SG_ NEW_SIGNAL_15 : 151|16@0+ (1,0) [0|65535] "" XXX
  SG_ NEW_SIGNAL_11 : 166|7@0+ (1,0) [0|127] "" XXX
  SG_ NEW_SIGNAL_12 : 174|7@0+ (1,0) [0|127] "" XXX
  SG_ GAS : 183|16@0+ (0.1,0) [0|32767] "" XXX
+ SG_ ENGINE_DATA_CHECKSUM_3 : 192|8@1+ (1,0) [0|255] "" XXX
+ SG_ ENGINE_DATA_COUNTER_3 : 200|4@1+ (1,0) [0|15] "" XXX
  SG_ GEAR : 208|3@1+ (1,0) [0|63] "" XXX
  SG_ GEAR_BUTTON : 211|3@1+ (1,0) [0|7] "" XXX
  SG_ CC_STATE : 218|2@0+ (1,0) [0|7] "" XXX
@@ -59,15 +65,9 @@ BO_ 62 ENGINE_DATA: 48 XXX
  SG_ CRUIZE_SPEED : 229|7@0+ (1,0) [0|63] "" XXX
  SG_ SWITCH_TO_P : 234|1@0+ (1,0) [0|1] "" XXX
  SG_ NEW_SIGNAL_3 : 245|1@0+ (1,0) [0|1] "" XXX
- SG_ NEW_SIGNAL_14 : 278|15@0+ (1,0) [0|32767] "" XXX
- SG_ ENGINE_DATA_CHECKSUM_1 : 64|8@1+ (1,0) [0|255] "" XXX
- SG_ ENGINE_DATA_COUNTER_1 : 72|4@1+ (1,0) [0|15] "" XXX
- SG_ ENGINE_DATA_CHECKSUM_2 : 128|8@1+ (1,0) [0|255] "" XXX
- SG_ ENGINE_DATA_COUNTER_2 : 136|4@1+ (1,0) [0|15] "" XXX
- SG_ ENGINE_DATA_CHECKSUM_3 : 192|8@1+ (1,0) [0|255] "" XXX
- SG_ ENGINE_DATA_COUNTER_3 : 200|4@1+ (1,0) [0|15] "" XXX
  SG_ ENGINE_DATA_CHECKSUM_4 : 256|8@1+ (1,0) [0|255] "" XXX
  SG_ ENGINE_DATA_COUNTER_4 : 264|4@1+ (1,0) [0|15] "" XXX
+ SG_ NEW_SIGNAL_14 : 278|15@0+ (1,0) [0|32767] "" XXX
 
 BO_ 196 STEER_SENSOR: 8 XXX
  SG_ STEER_ANGLE_HR : 7|16@0+ (0.0625,-2048) [-2048|2047.9375] "deg" XXX
@@ -299,33 +299,26 @@ BO_ 994 NEW_MSG_3E2: 8 XXX
  SG_ NEW_SIGNAL_1 : 21|10@0- (1,0) [0|1023] "" XXX
 
 BO_ 1005 LEAD_FRONT: 8 XXX
- SG_ LEAD_VALID : 7|1@0+ (1,0) [0|1] "" XXX
- SG_ LEAD_TYPE : 6|3@0+ (1,0) [0|7] "" XXX
- SG_ LEAD_FLAG : 3|1@0+ (1,0) [0|1] "" XXX
  SG_ LEAD_DISTANCE : 2|7@0+ (1,0) [0|127] "m" XXX
+ SG_ LEAD_CLASS : 6|4@0+ (1,0) [0|15] "" XXX
+ SG_ LEAD_VALID : 7|1@0+ (1,0) [0|1] "" XXX
  SG_ LEAD_LATERAL : 10|11@0+ (0.04,-40) [-40|41.88] "m" XXX
- SG_ LEAD_VALID_2 : 31|1@0+ (1,0) [0|1] "" XXX
- SG_ LEAD_TYPE_2 : 30|3@0+ (1,0) [0|7] "" XXX
- SG_ LEAD_FLAG_2 : 27|1@0+ (1,0) [0|1] "" XXX
  SG_ LEAD_DISTANCE_2 : 26|7@0+ (1,0) [0|127] "m" XXX
+ SG_ LEAD_CLASS_2 : 30|4@0+ (1,0) [0|15] "" XXX
+ SG_ LEAD_VALID_2 : 31|1@0+ (1,0) [0|1] "" XXX
  SG_ LEAD_LATERAL_2 : 34|11@0+ (0.04,-40) [-40|41.88] "m" XXX
 
 BO_ 1008 NEW_MSG_3F0: 8 XXX
 
 BO_ 1018 LEAD_RIGHT_LEFT: 8 XXX
- SG_ LEAD_LEFT : 2|8@0+ (1,0) [0|511] "" XXX
- SG_ VALID_SIGNAL : 3|1@0+ (1,0) [0|1] "" XXX
- SG_ NEW_SIGNAL_8 : 4|1@0+ (1,0) [0|1] "" XXX
- SG_ NEW_SIGNAL_9 : 5|1@0+ (1,0) [0|1] "" XXX
- SG_ NEW_SIGNAL_3 : 7|1@0+ (1,0) [0|1] "" XXX
- SG_ NEW_SIGNAL_4 : 10|3@0+ (1,0) [0|7] "" XXX
- SG_ NEW_SIGNAL_2 : 23|8@0+ (1,0) [0|3] "" XXX
- SG_ LEAD_RIGHT : 26|8@0+ (1,0) [0|255] "" XXX
- SG_ VALID_SIGNAL_2 : 27|1@0+ (1,0) [0|1] "" XXX
- SG_ NEW_SIGNAL_7 : 31|1@0+ (1,0) [0|1] "" XXX
- SG_ NEW_SIGNAL_6 : 34|8@0+ (1,0) [0|255] "" XXX
- SG_ NEW_SIGNAL_5 : 41|2@1+ (1,0) [0|3] "" XXX
- SG_ NEW_SIGNAL_1 : 51|12@0+ (1,0) [0|4095] "" XXX
+ SG_ LEFT_DISTANCE : 2|7@0+ (1,0) [0|127] "m" XXX
+ SG_ LEFT_CLASS : 6|4@0+ (1,0) [0|15] "" XXX
+ SG_ LEFT_VALID : 7|1@0+ (1,0) [0|1] "" XXX
+ SG_ LEFT_LATERAL : 10|11@0+ (0.04,-40) [-40|41.88] "m" XXX
+ SG_ RIGHT_DISTANCE : 26|7@0+ (1,0) [0|127] "m" XXX
+ SG_ RIGHT_CLASS : 30|4@0+ (1,0) [0|15] "" XXX
+ SG_ RIGHT_VALID : 31|1@0+ (1,0) [0|1] "" XXX
+ SG_ RIGHT_LATERAL : 34|11@0+ (0.04,-40) [-40|41.88] "m" XXX
 
 BO_ 1020 HUD_ALERT: 8 XXX
  SG_ NEW_SIGNAL_6 : 16|2@1+ (1,0) [0|3] "" XXX
@@ -424,10 +417,15 @@ BO_ 1335 NEW_MSG_537: 8 XXX
 
 CM_ BO_ 1005 "Front ADAS camera lead estimate (the car has no radar). Two 3-byte object slots; 07 FA EA marks an empty slot. No relative speed.";
 CM_ SG_ 1005 LEAD_DISTANCE "Fit against the openpilot model lead on 21 stock-ACC segments: corr 0.96, model x = 0.95 * LEAD_DISTANCE + 2.7.";
+CM_ SG_ 1005 LEAD_CLASS "Matched on video: 1 car, 2 truck, 3 motorcycle. 4 and 5 seen rarely, unidentified.";
 CM_ SG_ 1005 LEAD_LATERAL "Positive left. Scale fit loosely (corr 0.73 against the model lead).";
-CM_ SG_ 1005 LEAD_TYPE "0 and 1 seen on real leads, 2 rarely; 1 shows up mostly at low speed. Meaning unconfirmed.";
-CM_ SG_ 1005 LEAD_DISTANCE_2 "Second slot assumed to share the first slot's layout; not fit separately.";
+CM_ BO_ 1018 "Adjacent-lane objects from the front camera, same slot layout as LEAD_FRONT. On 21 segments the first slot sat left in 98% of frames (median +2.6 m), the second right in 97% (median -3.1 m).";
+CM_ SG_ 1005 LEAD_DISTANCE_2 "Same layout as the first slot; seen holding an 18 m car while a motorcycle took the first slot.";
 VAL_ 62 GEAR 1 "P" 2 "R" 3 "N" 4 "D";
+VAL_ 1005 LEAD_CLASS 1 "CAR" 2 "TRUCK" 3 "MOTORCYCLE";
+VAL_ 1005 LEAD_CLASS_2 1 "CAR" 2 "TRUCK" 3 "MOTORCYCLE";
+VAL_ 1018 LEFT_CLASS 1 "CAR" 2 "TRUCK" 3 "MOTORCYCLE";
+VAL_ 1018 RIGHT_CLASS 1 "CAR" 2 "TRUCK" 3 "MOTORCYCLE";
 VAL_ 62 GEAR_BUTTON 1 "Park Pressed" 3 "Netral Pressed" 4 "Drive Pressed" 2 "Reverse Pressed";
 VAL_ 62 CC_STATE 0 "Not Available" 1 "Available" 3 "Active";
 VAL_ 903 ACC_ACTIVE 0 "INACTIVE";

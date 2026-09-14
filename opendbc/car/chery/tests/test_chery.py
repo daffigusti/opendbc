@@ -879,6 +879,17 @@ def test_steering_rate_takes_magnitude_from_rate_and_sign_from_angle():
   assert rates == [pytest.approx(0), pytest.approx(80), pytest.approx(80), pytest.approx(20), pytest.approx(-120)]
 
 
+def test_steering_torque_takes_sign_from_wheel_motion():
+  cp, parsers, packer = state_fixture()
+  car_state = CarState(cp, structs.CarParamsSP())
+  torques = []
+  for angle in (10.0, 12.0, 12.0, 8.0, 8.0):
+    feed(parsers, packer, Bus.pt, [("STEER_SENSOR", {"STEER_ANGLE_HR": angle}),
+                                   ("STEER_SENSOR_2", {"TORQUE_DRIVER": 100})])
+    torques.append(car_state.update(parsers)[0].steeringTorque)
+  assert torques[1:] == pytest.approx([100, 100, -100, -100], abs=0.5)
+
+
 def test_steer_sensor_matches_route_frame():
   """0xC4 frame from a real route: 0x87cb is +124.7 deg, byte 2 = 1 is 4 deg/s."""
   parser = CANParser("chery_canfd", [("STEER_SENSOR", 0)], 0)

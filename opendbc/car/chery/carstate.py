@@ -125,11 +125,13 @@ class CarState(CarStateBase):
     self.brake_pos = cp.vl["BRAKE_DATA"]["BRAKE_POS"]
     ret.brakePressed = cp.vl["ENGINE_DATA"]["BRAKE_PRESS"] != 0
     ret.steeringAngleDeg = cp.vl["STEER_ANGLE_SENSOR"]["STEER_ANGLE"]
-    ret.steeringTorque = cp.vl["STEER_SENSOR_2"]["TORQUE_DRIVER"]
-    ret.steeringTorqueEps = cp.vl["STEER_ANGLE_SENSOR"]["TORQUE"]
     ret.steeringRateDeg = self._steering_rate(cp.vl["STEER_SENSOR"])
-    # TORQUE_DRIVER's sign is unverified, so only its magnitude is used. The threshold is the
-    # one the working fork runs with; see KNOWN_GAPS.md.
+    # TORQUE_DRIVER only ever reads positive, so it is a magnitude. desire_helper needs a sign to
+    # confirm a lane change, so borrow it from which way the wheel is turning, as the working fork
+    # does. ponytail: a driver pushing against the wheel without moving it keeps the last sign.
+    ret.steeringTorque = cp.vl["STEER_SENSOR_2"]["TORQUE_DRIVER"] * self.steer_rate_sign
+    ret.steeringTorqueEps = cp.vl["STEER_ANGLE_SENSOR"]["TORQUE"]
+    # The threshold is the one the working fork runs with; see KNOWN_GAPS.md.
     ret.steeringPressed = abs(ret.steeringTorque) > CarControllerParams.STEER_THRESHOLD
 
     # ACC_AVAILABLE reads 3 while the driver overrides with the accelerator and ACC_ACTIVE stays

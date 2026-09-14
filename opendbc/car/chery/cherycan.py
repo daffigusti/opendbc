@@ -96,16 +96,21 @@ def create_lkas_state_hud(packer, bus: int, stock_values: dict, lkas_active: boo
   return packer.make_can_msg("LKAS_STATE", bus, values)
 
 
-def create_hud_alert(packer, bus: int, stock_values: dict, takeover: bool):
-  """HUD_ALERT drives the cluster's driver-assist warnings; ICA_WARNING=6 is the take-over message.
+def create_hud_alert(packer, bus: int, stock_values: dict, takeover: bool, steer_required: bool):
+  """HUD_ALERT drives the cluster's driver-assist warnings.
 
-  Stock 0x3FC is blocked from forwarding, so this relays the camera's frame and only raises the
-  take-over warning while the driver is holding lateral off.
+  ICA_WARNING=6 is the take-over message for a driver steer override, and STEER_WARNING=1 is the
+  "take over and steer carefully" request. Stock 0x3FC is blocked from forwarding, so this relays
+  the camera's frame and only raises those warnings on top of it.
   """
-  if not takeover:
+  values = dict(stock_values)
+  if takeover:
+    values["ICA_WARNING"] = ICA_WARNING_TAKEOVER
+  if steer_required:
+    values["STEER_WARNING"] = 1
+  if values == stock_values:
     return packer.make_can_msg("HUD_ALERT", bus, stock_values)
 
-  values = {**stock_values, "ICA_WARNING": ICA_WARNING_TAKEOVER}
   _, dat, _ = packer.make_can_msg("HUD_ALERT", bus, values)
   values["CHECKSUM"] = calculate_crc(dat[:-1])
   return packer.make_can_msg("HUD_ALERT", bus, values)

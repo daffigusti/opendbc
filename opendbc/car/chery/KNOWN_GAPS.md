@@ -47,7 +47,9 @@ Future evidence required:
 - `HUD_ALERT` (`0x3FC`) is relayed the same way. While the driver torque override holds
   lateral off, openpilot sets `ICA_WARNING=6`, which the owner identified as the cluster's
   take-over warning; otherwise the camera's frame goes out verbatim. Byte 7 is CRC-8 over
-  bytes 0-6, checked on one frame. Cluster behaviour with the substituted frame is unverified.
+  bytes 0-6, checked on one frame. openpilot's `steerRequired` visual alert (steer fault,
+  steer saturated, driver monitoring) sets `STEER_WARNING=1`, which the owner identified as the
+  cluster's "take over and steer carefully" warning; the camera's own bit is kept. Cluster behaviour with the substituted frame is unverified.
 - `steerRatio` 17 is fitted from locationd yaw rate against measured wheel angle
   on one 8-minute urban route (r=0.98, 16.8-17.2 across 11-32 kph); it has not been
   checked above 32 kph. `steerActuatorDelay` 0.15 follows the 130ms command-to-angle

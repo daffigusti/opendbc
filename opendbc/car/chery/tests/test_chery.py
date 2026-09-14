@@ -115,10 +115,12 @@ def test_chery_signal_ranges_declared_in_dbc():
   } <= dbc_lines
 
 
-def make_control(lat_active: bool, angle: float, long_active: bool = False):
+def make_control(lat_active: bool, angle: float, long_active: bool = False, visual_alert=None):
   control = structs.CarControl()
   control.latActive = lat_active
   control.longActive = long_active
+  if visual_alert is not None:
+    control.hudControl.visualAlert = visual_alert
   control.actuators.steeringAngleDeg = angle
   return control.as_reader()
 
@@ -634,6 +636,27 @@ def test_hud_alert_relays_stock_content_when_not_overridden():
   values = decode_hud_alert(next(send for send in sends if send[0] == 0x3FC))
   assert values["ICA_WARNING"] == 3
   assert values["TAKE_OVER_WARNING"] == 15
+  assert values["CHECKSUM"] == 0x42
+
+
+def test_steer_required_alert_raises_steer_warning():
+  VisualAlert = structs.CarControl.HUDControl.VisualAlert
+  controller = make_controller()
+  control = make_control(True, 0.0, visual_alert=VisualAlert.steerRequired)
+  _actuators, sends = controller.update(control, structs.CarControlSP(), make_state(0.0, 10.0), 0)
+  alert = next(send for send in sends if send[0] == 0x3FC)
+  values = decode_hud_alert(alert)
+  assert values["STEER_WARNING"] == 1
+  assert values["ICA_WARNING"] == 0
+  assert alert[1][-1] == calculate_crc(alert[1][:-1])
+
+  # Other alerts leave the camera's own warning untouched, including one it raised itself.
+  state = make_state(0.0, 10.0)
+  state.hud_alert.update({"STEER_WARNING": 1, "CHECKSUM": 0x42})
+  control = make_control(True, 0.0, visual_alert=VisualAlert.fcw)
+  _actuators, sends = make_controller().update(control, structs.CarControlSP(), state, 0)
+  values = decode_hud_alert(next(send for send in sends if send[0] == 0x3FC))
+  assert values["STEER_WARNING"] == 1
   assert values["CHECKSUM"] == 0x42
 
 

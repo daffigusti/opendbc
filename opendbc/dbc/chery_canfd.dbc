@@ -299,17 +299,16 @@ BO_ 994 NEW_MSG_3E2: 8 XXX
  SG_ NEW_SIGNAL_1 : 21|10@0- (1,0) [0|1023] "" XXX
 
 BO_ 1005 LEAD_FRONT: 8 XXX
- SG_ LEAD_DISTANCE : 2|8@0+ (1,0) [0|8191] "" XXX
- SG_ VALID_SIGNAL : 3|1@1+ (1,0) [0|3] "" XXX
- SG_ NEW_SIGNAL_3 : 4|1@0+ (1,0) [0|1] "" XXX
- SG_ NEW_SIGNAL_7 : 7|1@0+ (1,0) [0|1] "" XXX
- SG_ NEW_SIGNAL_6 : 10|3@0+ (1,0) [0|7] "" XXX
- SG_ NEW_SIGNAL_4 : 23|7@0+ (1,0) [0|2047] "" XXX
- SG_ NEW_SIGNAL_9 : 32|8@1+ (1,0) [0|255] "" XXX
- SG_ NEW_SIGNAL_8 : 40|4@1+ (1,0) [0|15] "" XXX
- SG_ NEW_SIGNAL_5 : 44|4@1+ (1,0) [0|255] "" XXX
- SG_ NEW_SIGNAL_2 : 48|4@1+ (1,0) [0|15] "" XXX
- SG_ NEW_SIGNAL_1 : 56|8@1+ (1,0) [0|255] "" XXX
+ SG_ LEAD_VALID : 7|1@0+ (1,0) [0|1] "" XXX
+ SG_ LEAD_TYPE : 6|3@0+ (1,0) [0|7] "" XXX
+ SG_ LEAD_FLAG : 3|1@0+ (1,0) [0|1] "" XXX
+ SG_ LEAD_DISTANCE : 2|7@0+ (1,0) [0|127] "m" XXX
+ SG_ LEAD_LATERAL : 10|11@0+ (0.04,-40) [-40|41.88] "m" XXX
+ SG_ LEAD_VALID_2 : 31|1@0+ (1,0) [0|1] "" XXX
+ SG_ LEAD_TYPE_2 : 30|3@0+ (1,0) [0|7] "" XXX
+ SG_ LEAD_FLAG_2 : 27|1@0+ (1,0) [0|1] "" XXX
+ SG_ LEAD_DISTANCE_2 : 26|7@0+ (1,0) [0|127] "m" XXX
+ SG_ LEAD_LATERAL_2 : 34|11@0+ (0.04,-40) [-40|41.88] "m" XXX
 
 BO_ 1008 NEW_MSG_3F0: 8 XXX
 
@@ -423,6 +422,11 @@ BO_ 1335 NEW_MSG_537: 8 XXX
  SG_ DRIVE_MODE : 25|2@1+ (1,0) [0|3] "" XXX
  SG_ EPB_PRESSED : 41|1@0+ (1,0) [0|1] "" XXX
 
+CM_ BO_ 1005 "Front ADAS camera lead estimate (the car has no radar). Two 3-byte object slots; 07 FA EA marks an empty slot. No relative speed.";
+CM_ SG_ 1005 LEAD_DISTANCE "Fit against the openpilot model lead on 21 stock-ACC segments: corr 0.96, model x = 0.95 * LEAD_DISTANCE + 2.7.";
+CM_ SG_ 1005 LEAD_LATERAL "Positive left. Scale fit loosely (corr 0.73 against the model lead).";
+CM_ SG_ 1005 LEAD_TYPE "0 and 1 seen on real leads, 2 rarely; 1 shows up mostly at low speed. Meaning unconfirmed.";
+CM_ SG_ 1005 LEAD_DISTANCE_2 "Second slot assumed to share the first slot's layout; not fit separately.";
 VAL_ 62 GEAR 1 "P" 2 "R" 3 "N" 4 "D";
 VAL_ 62 GEAR_BUTTON 1 "Park Pressed" 3 "Netral Pressed" 4 "Drive Pressed" 2 "Reverse Pressed";
 VAL_ 62 CC_STATE 0 "Not Available" 1 "Available" 3 "Active";

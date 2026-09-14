@@ -38,7 +38,9 @@ class CarControllerParams:
 
   # SETTING.GAP runs 1..5, 5 the farthest; GAP_ADJUST_UP moves it farther. openpilot's following
   # distance is narrower than stock's, so its three personalities sit on the middle levels.
-  # ponytail: mapped by eye, not by measured time gap. Refit from LEAD_FRONT distance / vEgo per GAP.
+  # Measured only for GAP 5: stock ACC held ~41 m (LEAD_FRONT) / ~42 m (model) at 64 kph, a ~2.35 s gap,
+  # already farther than relaxed's 1.75 s * v + 6 m (~37 m there). Route 00000488 ran at GAP 5 throughout.
+  # ponytail: levels 1-4 still mapped by eye; refit from LEAD_FRONT distance / vEgo on a route that uses them.
   GAP_FOR_DISTANCE_BARS = {1: 2, 2: 3, 3: 4}  # aggressive, standard, relaxed
 
   # STEER_SENSOR_2.TORQUE_DRIVER is 0.24 units; 70 is the threshold the working fork ran with.

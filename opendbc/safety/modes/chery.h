@@ -180,7 +180,10 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
     const bool acc_button = GET_BIT(msg, 24U);
     const bool res_plus = GET_BIT(msg, 30U);
     const bool res_minus = GET_BIT(msg, 32U);
-    const bool other_buttons = GET_BIT(msg, 26U) || GET_BIT(msg, 43U) || GET_BIT(msg, 45U);
+    const bool main_button = GET_BIT(msg, 26U);
+    const bool gap_down = GET_BIT(msg, 43U);
+    const bool gap_up = GET_BIT(msg, 45U);
+    const bool other_buttons = main_button || gap_down || gap_up;
     // Cancel: the ACC button toggles the ACC, cancelling while active and engaging while not, so it
     // is only allowed alone and while ACC_ACTIVE is 1. It needs neither controls nor brake-free RX,
     // so a disengaged openpilot can still take the stock ACC down, but it does need trusted RX,
@@ -190,9 +193,16 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
     }
     // Resume taps and set-speed taps only, with controls authorized. RES+ is resume from a stopped
     // hold or +set speed while ACC is active. RES- is -set speed while active but SET (engage)
-    // while not, so it requires an active ACC. Main and gap bits are never host-sent.
+    // while not, so it requires an active ACC. The main bit is never host-sent.
     if (!chery_health_ready()) {
       return false;
+    }
+    // Gap taps sync the stock following distance to openpilot's personality. They only change the
+    // stock ACC's own gap, which openpilot's ACC_CMD overrides, so they need openpilot longitudinal,
+    // an active ACC and controls, one direction at a time, and nothing else pressed.
+    if (gap_down || gap_up) {
+      return chery_longitudinal && controls_allowed && chery_acc_active && (gap_down != gap_up) &&
+             !main_button && !res_plus && !res_minus;
     }
     const bool plus_ok = !res_plus || chery_acc_active || !vehicle_moving;
     const bool minus_ok = !res_minus || chery_acc_active;

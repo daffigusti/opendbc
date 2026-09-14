@@ -18,6 +18,7 @@ class CarState(CarStateBase):
     self.button_states = {
       structs.CarState.ButtonEvent.Type.accelCruise: False,
       structs.CarState.ButtonEvent.Type.decelCruise: False,
+      structs.CarState.ButtonEvent.Type.gapAdjustCruise: False,
     }
     can_define = CANDefine(DBC[CP.carFingerprint][Bus.pt])
     self.shifter_values = can_define.dv["ENGINE_DATA"]["GEAR"]
@@ -29,6 +30,7 @@ class CarState(CarStateBase):
     self.acc_active = False
     self.cruise_enabled_prev = False
     self.lkas_state = {}
+    self.gap_setting = 0
     self.hud_alert = {}
     self.eps_dead_frames = 0
     self.steer_angle_hr_last = 0.0
@@ -59,12 +61,15 @@ class CarState(CarStateBase):
 
   def _button_events(self, buttons):
     button_types = {
-      "RES_PLUS": structs.CarState.ButtonEvent.Type.accelCruise,
-      "RES_MINUS": structs.CarState.ButtonEvent.Type.decelCruise,
+      structs.CarState.ButtonEvent.Type.accelCruise: ("RES_PLUS",),
+      structs.CarState.ButtonEvent.Type.decelCruise: ("RES_MINUS",),
+      # openpilot has one distance button that cycles personality; the carcontroller then taps
+      # the stock gap to match, so either direction on the wheel is a cycle press.
+      structs.CarState.ButtonEvent.Type.gapAdjustCruise: ("GAP_ADJUST_UP", "GAP_ADJUST_DOWN"),
     }
     events = []
-    for signal, event_type in button_types.items():
-      pressed = bool(buttons[signal])
+    for event_type, signals in button_types.items():
+      pressed = any(buttons[signal] for signal in signals)
       if pressed != self.button_states[event_type]:
         event = structs.CarState.ButtonEvent.new_message()
         event.type = event_type
@@ -151,6 +156,8 @@ class CarState(CarStateBase):
     ret.cruiseState.enabled = acc_engaged and (acc_state in (2, 3) or gas_override)
     self.cruise_enabled_prev = ret.cruiseState.enabled
     ret.cruiseState.speed = cp_cam.vl["SETTING"]["CC_SPEED"] * CV.KPH_TO_MS
+    # Stock ACC following distance: five levels, 5 the farthest (owner-identified on the cluster).
+    self.gap_setting = int(cp_cam.vl["SETTING"]["GAP"])
     # The stock ACC drops ACC_ACTIVE ~3s into a standstill hold and then ignores ACC_CMD gas
     # until a RES+ press. Report that -- not plain vEgo -- as cruise standstill, so controlsd
     # asks for a resume. It has to clear the moment ACC_ACTIVE returns, otherwise

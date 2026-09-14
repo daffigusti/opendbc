@@ -137,6 +137,7 @@ def make_state(measured_angle: float, speed: float = 1.0, front_wheel_speed: flo
     front_wheel_speed=speed if front_wheel_speed is None else front_wheel_speed,
     out=state.as_reader(),
     acc_active=acc_active,
+    gap_setting=3,
     lkas_cmd={
       "NEW_SIGNAL_5": 0,
       "NEW_SIGNAL_6": 0,
@@ -552,6 +553,24 @@ def test_buttons_emit_only_verified_resume_edges():
     assert {str(event.type) for event in events} == expected
 
 
+def test_gap_button_cycles_personality_and_gap_setting_is_read():
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
+  packer = CANPacker("chery_canfd")
+  state = CarState(cp, structs.CarParamsSP())
+  for up, down, expected in ((1, 0, [True]), (0, 0, [False]), (0, 1, [True]), (0, 0, [False])):
+    address, data, bus = packer.make_can_msg("STEER_BUTTON", parsers[Bus.pt].bus,
+                                             {"GAP_ADJUST_UP": up, "GAP_ADJUST_DOWN": down})
+    parsers[Bus.pt].update([[0, [(address, data, bus)]]])
+    events = state.update(parsers)[0].buttonEvents
+    assert [(str(event.type), event.pressed) for event in events] == [("gapAdjustCruise", p) for p in expected]
+
+  address, data, bus = packer.make_can_msg("SETTING", parsers[Bus.cam].bus, {"GAP": 5})
+  parsers[Bus.cam].update([[0, [(address, data, bus)]]])
+  state.update(parsers)
+  assert state.gap_setting == 5
+
+
 def hud_frames(sends):
   return [send for send in sends if send[0] == 0x307]
 
@@ -837,6 +856,56 @@ def test_eps_fault_latches_only_after_a_sustained_dead_servo():
   assert state.steerFaultTemporary is False
   state = drive_eps(car_state, parsers, packer, -1, False, timeout + 1)
   assert state.steerFaultTemporary is False
+
+
+def make_long_controller():
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  cp.openpilotLongitudinalControl = True
+  return CarController(DBC[CAR.CHERY_OMODA_E5], cp, structs.CarParamsSP())
+
+
+def gap_taps(controller, bars, gap_setting, long_active=True, acc_active=True, frames=140):
+  control = structs.CarControl()
+  control.longActive = long_active
+  control.hudControl.leadDistanceBars = bars
+  state = make_state(0.0, 10.0, acc_active=acc_active)
+  state.gap_setting = gap_setting
+  state.acc_cmd = {name: 0 for name in (
+    "ACC_STATE", "STOPPED", "ACC_STATE_2", "NEW_SIGNAL_12", "NEW_SIGNAL_9", "NEW_SIGNAL_2", "STOPPING",
+    "NEW_SIGNAL_13", "NEW_SIGNAL_8", "NEW_SIGNAL_5", "NEW_SIGNAL_6", "NEW_SIGNAL_10",
+    "NEW_SIGNAL_3", "NEW_SIGNAL_4", "AEB_REQ_STOP", "COUNTER",
+  )}
+  parser = CANParser("chery_canfd", [("STEER_BUTTON", 2)], 2)
+  taps = []
+  for frame in range(frames):
+    _actuators, sends = controller.update(control.as_reader(), structs.CarControlSP(), state, frame * 10_000_000)
+    for send in button_frames(sends):
+      parser.update([[0, [send]]])
+      taps.append((parser.vl["STEER_BUTTON"]["GAP_ADJUST_UP"], parser.vl["STEER_BUTTON"]["GAP_ADJUST_DOWN"]))
+  return taps
+
+
+@pytest.mark.parametrize("bars, gap_setting, expected", [
+  (3, 3, (1, 0)),  # relaxed wants 4: farther
+  (1, 3, (0, 1)),  # aggressive wants 2: closer
+  (2, 5, (0, 1)),
+])
+def test_gap_taps_toward_personality_target(bars, gap_setting, expected):
+  assert gap_taps(make_long_controller(), bars, gap_setting) == [expected] * 8
+
+
+@pytest.mark.parametrize("kwargs", [
+  {"bars": 2, "gap_setting": 3},                       # already matched
+  {"bars": 3, "gap_setting": 3, "long_active": False},
+  {"bars": 3, "gap_setting": 3, "acc_active": False},
+  {"bars": 0, "gap_setting": 3},                       # no personality published
+])
+def test_gap_taps_stay_quiet(kwargs):
+  assert gap_taps(make_long_controller(), **kwargs) == []
+
+
+def test_gap_taps_need_openpilot_longitudinal():
+  assert gap_taps(make_controller(), 3, 3) == []
 
 
 def make_icbm_control(send_button):

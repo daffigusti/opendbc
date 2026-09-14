@@ -29,6 +29,11 @@ Future evidence required:
   of hysteresis either way. `TORQUE_DRIVER`'s sign is still unverified, so only its
   magnitude is used, and the threshold itself needs owner-labeled stationary
   correlation.
+- Either gap button emits `gapAdjustCruise`, which cycles openpilot's longitudinal personality.
+  `SETTING.GAP` is the stock following distance, 1..5 with 5 the farthest, and `GAP_ADJUST_UP`
+  moves it farther (owner-identified). With openpilot longitudinal and the ACC active, `0x360`
+  gap taps bring it to 2/3/4 for aggressive/standard/relaxed. The mapping is by eye, not measured
+  time gap, and whether the camera accepts spoofed gap presses while moving is unconfirmed.
 - `ENGINE_DATA.GAS` is not a driver-pedal signal and is no longer read as one.
   Across 943k moving frames its distribution under ACC and under the driver is
   indistinguishable (38.8% vs 51.9% at zero, both saturating above 26000), so no

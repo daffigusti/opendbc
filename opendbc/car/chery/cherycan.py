@@ -117,7 +117,7 @@ def create_hud_alert(packer, bus: int, stock_values: dict, takeover: bool, steer
 
 
 def create_button_control(packer, bus: int, stock_values: dict, cancel: bool = False, resume: bool = False,
-                          decrease: bool = False):
+                          decrease: bool = False, gap_up: bool = False, gap_down: bool = False):
   values = {name: stock_values[name] for name in (
     "ACC", "CC_BTN", "RES_PLUS", "RES_MINUS", "NEW_SIGNAL_1",
     "GAP_ADJUST_UP", "GAP_ADJUST_DOWN",
@@ -126,6 +126,8 @@ def create_button_control(packer, bus: int, stock_values: dict, cancel: bool = F
     "ACC": 1 if cancel else 0,
     "RES_PLUS": 1 if resume else 0,
     "RES_MINUS": 1 if decrease else 0,
+    "GAP_ADJUST_UP": 1 if gap_up else 0,
+    "GAP_ADJUST_DOWN": 1 if gap_down else 0,
     # The wheel's own frame keeps reaching the camera, so continue its counter rather than run a second one.
     "COUNTER": (int(stock_values["COUNTER"]) + 1) % 0x10,
   })

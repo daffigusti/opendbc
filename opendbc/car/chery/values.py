@@ -36,6 +36,11 @@ class CarControllerParams:
   # while not; on a real route ACC_ACTIVE dropped 0.1-0.25s after a press, well inside one cycle, so a
   # second tap never lands on an already-cancelled ACC.
 
+  # SETTING.GAP runs 1..5, 5 the farthest; GAP_ADJUST_UP moves it farther. openpilot's following
+  # distance is narrower than stock's, so its three personalities sit on the middle levels.
+  # ponytail: mapped by eye, not by measured time gap. Refit from LEAD_FRONT distance / vEgo per GAP.
+  GAP_FOR_DISTANCE_BARS = {1: 2, 2: 3, 3: 4}  # aggressive, standard, relaxed
+
   # STEER_SENSOR_2.TORQUE_DRIVER is 0.24 units; 70 is the threshold the working fork ran with.
   # Unverified against a labelled stationary sweep -- see KNOWN_GAPS.md.
   STEER_THRESHOLD = 70.

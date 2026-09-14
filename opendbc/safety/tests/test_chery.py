@@ -704,7 +704,8 @@ class TestCherySafety(SafetyTest):
     self.assertTrue(self._tx(self._button_msg(RES_PLUS=1)))
     self.assertTrue(self._tx(self._button_msg(RES_MINUS=1)))
     self.assertFalse(self._tx(self._button_msg(RES_PLUS=1, RES_MINUS=1)))
-    # Main and gap are never host-sent; cancel never rides along with another button.
+    # Main is never host-sent, and gap never without openpilot longitudinal; cancel never rides
+    # along with another button.
     for button in ("CC_BTN", "GAP_ADJUST_UP", "GAP_ADJUST_DOWN"):
       self.assertFalse(self._tx(self._button_msg(**{button: 1})), button)
       self.assertFalse(self._tx(self._button_msg(RES_PLUS=1, **{button: 1})), button)
@@ -712,6 +713,22 @@ class TestCherySafety(SafetyTest):
     self._rx_field(0x3A5, active=0)
     self.assertFalse(self._tx(self._button_msg(RES_PLUS=1)))
     self.assertFalse(self._tx(self._button_msg(RES_MINUS=1)))
+
+  def test_gap_taps_need_longitudinal_active_acc_and_controls(self):
+    self._enable_longitudinal()
+    self._engage()
+    self._rx_field(0x316, fr=100, fl=100)
+    for button in ("GAP_ADJUST_UP", "GAP_ADJUST_DOWN"):
+      self.assertTrue(self._tx(self._button_msg(**{button: 1})), button)
+      for other in ("CC_BTN", "RES_PLUS", "RES_MINUS"):
+        self.assertFalse(self._tx(self._button_msg(**{button: 1, other: 1})), (button, other))
+    self.assertFalse(self._tx(self._button_msg(GAP_ADJUST_UP=1, GAP_ADJUST_DOWN=1)))
+    self.assertFalse(self._tx(self._button_msg(bus=0, GAP_ADJUST_UP=1)))
+    self.safety.set_controls_allowed(False)
+    self.assertFalse(self._tx(self._button_msg(GAP_ADJUST_UP=1)))
+    self.safety.set_controls_allowed(True)
+    self._rx_field(0x3A5, active=0)
+    self.assertFalse(self._tx(self._button_msg(GAP_ADJUST_UP=1)))
 
   def test_cancel_requires_an_active_acc(self):
     """The ACC button engages the ACC when it is off, so it may only go out while ACC_ACTIVE is 1."""

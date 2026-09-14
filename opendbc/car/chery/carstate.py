@@ -156,8 +156,10 @@ class CarState(CarStateBase):
     # long_control_state_trans keeps starting_condition False and the car stays held after the
     # button lands.
     ret.cruiseState.standstill = not self.acc_active and bool(cp_cam.vl["ACC_CMD"]["STOPPED"])
-    ret.stockAeb = cp_cam.vl["ACC"]["AEB_ACTIVE"] == 1
-    ret.stockFcw = False
+    # Route 1b6 braked with SETTING.AEB_ACTIVE=3. ACC.AEB_ACTIVE rose for route 488's dash collision
+    # warning with AEB switched off, and for a second 1b6 stop that SETTING never flagged.
+    ret.stockAeb = cp_cam.vl["SETTING"]["AEB_ACTIVE"] == 3
+    ret.stockFcw = cp_cam.vl["ACC"]["AEB_ACTIVE"] == 1 and not ret.stockAeb
     ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(int(cp.vl["ENGINE_DATA"]["GEAR"])))
     ret.leftBlinker = cp.vl["BCM_SIGNAL_1"]["SIGN_SIGNAL"] == 2
     ret.rightBlinker = cp.vl["BCM_SIGNAL_1"]["SIGN_SIGNAL"] == 1

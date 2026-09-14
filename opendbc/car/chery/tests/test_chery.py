@@ -464,12 +464,15 @@ def test_acc_available_values(available, acc_active, expected):
   assert state.cruiseState.available is expected
 
 
-@pytest.mark.parametrize("acc_aeb, setting_aeb, expected", [
-  (0, 3, False),
-  (1, 0, True),
-  (1, 3, True),
+@pytest.mark.parametrize("acc_aeb, setting_aeb, aeb, fcw", [
+  (0, 0, False, False),
+  (0, 2, False, False),
+  (0, 3, True, False),
+  (1, 0, False, True),
+  (1, 2, False, True),
+  (1, 3, True, False),
 ])
-def test_stock_aeb_uses_acc_signal_not_setting(acc_aeb, setting_aeb, expected):
+def test_stock_aeb_from_setting_and_fcw_from_acc(acc_aeb, setting_aeb, aeb, fcw):
   cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
   parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
   packer = CANPacker("chery_canfd")
@@ -483,7 +486,8 @@ def test_stock_aeb_uses_acc_signal_not_setting(acc_aeb, setting_aeb, expected):
     (acc_address, acc_data, acc_bus), (setting_address, setting_data, setting_bus),
   ]]])
   state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
-  assert state.stockAeb is expected
+  assert state.stockAeb is aeb
+  assert state.stockFcw is fcw
 
 
 @pytest.mark.parametrize("brake_pos, brake_press, expected", [(25, 0, False), (0, 1, True)])

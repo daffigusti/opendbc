@@ -6,7 +6,7 @@ import pytest
 from opendbc.car import Bus
 from opendbc.car import structs
 from opendbc.can import CANPacker, CANParser
-from opendbc.car.chery.cherycan import CanBus, calculate_crc
+from opendbc.car.chery.cherycan import CanBus, calculate_crc, create_hud_alert
 from opendbc.car.chery.carcontroller import CarController
 from opendbc.car.chery.carstate import CarState
 from opendbc.car.chery.fingerprints import FINGERPRINTS, FW_VERSIONS
@@ -150,7 +150,7 @@ def make_state(measured_angle: float, speed: float = 1.0, front_wheel_speed: flo
     )},
     hud_alert={name: 0 for name in (
       "NEW_SIGNAL_6", "NEW_SIGNAL_7", "ICA_WARNING", "NEW_SIGNAL_4",
-      "STEER_WARNING", "TAKE_OVER_WARNING", "NEW_SIGNAL_3", "CHECKSUM",
+      "STEER_WARNING", "NEW_SIGNAL_3", "COUNTER", "CHECKSUM",
     )},
     acc_cmd={},
     buttons_stock_values={name: 0 for name in (
@@ -650,12 +650,21 @@ def test_driver_torque_hands_lateral_back_and_takes_it_returned():
 def test_hud_alert_relays_stock_content_when_not_overridden():
   controller = make_controller()
   state = make_state(0.0, 10.0)
-  state.hud_alert.update({"ICA_WARNING": 3, "TAKE_OVER_WARNING": 15, "CHECKSUM": 0x42})
+  state.hud_alert.update({"ICA_WARNING": 3, "NEW_SIGNAL_3": -1, "CHECKSUM": 0x42})
   _actuators, sends = controller.update(make_control(False, 0.0), structs.CarControlSP(), state, 0)
   values = decode_hud_alert(next(send for send in sends if send[0] == 0x3FC))
   assert values["ICA_WARNING"] == 3
-  assert values["TAKE_OVER_WARNING"] == 15
+  assert values["NEW_SIGNAL_3"] == -1
   assert values["CHECKSUM"] == 0x42
+
+
+@pytest.mark.parametrize("raw", ["000012401b0ff1fd", "000012201b0ff76d"])
+def test_hud_alert_relay_is_byte_exact_on_real_camera_frames(raw):
+  # Byte 4 (0x1B) had no DBC signal, so the relay zeroed it and sent the camera's CRC over the changed bytes.
+  raw = bytes.fromhex(raw)
+  assert raw[-1] == calculate_crc(raw[:-1])
+  stock = decode_hud_alert((0x3FC, raw, 0)).copy()
+  assert create_hud_alert(CANPacker("chery_canfd"), 0, stock, False, False)[1] == raw
 
 
 def test_steer_required_alert_raises_steer_warning():

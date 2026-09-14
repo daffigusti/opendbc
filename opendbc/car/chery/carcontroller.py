@@ -1,7 +1,7 @@
 from opendbc.can import CANPacker
 from opendbc.car import Bus, DT_CTRL
 from opendbc.car.chery.cherycan import (CanBus, create_acc_control, create_button_control,
-                                        create_lkas_state_hud, create_steering_control,
+                                        create_hud_alert, create_lkas_state_hud, create_steering_control,
                                         limit_active_steering_angle, quantize_steering_angle)
 from opendbc.car.chery.values import CarControllerParams
 from opendbc.car.lateral import apply_steer_angle_limits_vm
@@ -125,6 +125,9 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     # relays it -- openpilot's while steering, the camera's verbatim otherwise.
     if self.frame % CarControllerParams.LKAS_HUD_STEP == 0:
       can_sends.append(create_lkas_state_hud(self.packer, self.CAN.main, CS.lkas_state, self.lkas_active_last))
+      # Stock 0x3FC is blocked too; tell the driver lateral is theirs while they hold the wheel.
+      can_sends.append(create_hud_alert(self.packer, self.CAN.main, CS.hud_alert,
+                                        CC.latActive and self.steer_override))
 
     if CC.cruiseControl.cancel:
       self._update_cancel(CS, can_sends)

@@ -16,6 +16,8 @@ CMD_MAX = 511
 # 192 route segments (10 hold episodes, 423 ACC_ACTIVE=1 + STOPPED=1 frames). Reproducing it is
 # what keeps the car held once openpilot owns the ACC frame.
 CMD_FULL_STOP = 400
+# Owner-identified on the cluster: HUD_ALERT.ICA_WARNING=6 shows the take-over warning.
+ICA_WARNING_TAKEOVER = 6
 
 
 def calculate_crc(data: bytes) -> int:
@@ -92,6 +94,21 @@ def create_lkas_state_hud(packer, bus: int, stock_values: dict, lkas_active: boo
   _, dat, _ = packer.make_can_msg("LKAS_STATE", bus, values)
   values["CHECKSUM"] = calculate_crc(dat[:-1])
   return packer.make_can_msg("LKAS_STATE", bus, values)
+
+
+def create_hud_alert(packer, bus: int, stock_values: dict, takeover: bool):
+  """HUD_ALERT drives the cluster's driver-assist warnings; ICA_WARNING=6 is the take-over message.
+
+  Stock 0x3FC is blocked from forwarding, so this relays the camera's frame and only raises the
+  take-over warning while the driver is holding lateral off.
+  """
+  if not takeover:
+    return packer.make_can_msg("HUD_ALERT", bus, stock_values)
+
+  values = {**stock_values, "ICA_WARNING": ICA_WARNING_TAKEOVER}
+  _, dat, _ = packer.make_can_msg("HUD_ALERT", bus, values)
+  values["CHECKSUM"] = calculate_crc(dat[:-1])
+  return packer.make_can_msg("HUD_ALERT", bus, values)
 
 
 def create_button_control(packer, bus: int, stock_values: dict, cancel: bool = False, resume: bool = False,

@@ -20,7 +20,7 @@ static int chery_abs(int value) {
 }
 
 static bool chery_health_ready(void) {
-  return (chery_rx_seen_mask == 0x3FU) && !safety_rx_checks_invalid && !chery_sensor_invalid && !chery_inhibited;
+  return (chery_rx_seen_mask == 0x7FU) && !safety_rx_checks_invalid && !chery_sensor_invalid && !chery_inhibited;
 }
 
 // The stock ACC drops ACC_ACTIVE while it holds the car at standstill, then ignores ACC_CMD gas
@@ -71,7 +71,8 @@ static void chery_rx_hook(const CANPacket_t *msg) {
                            (msg->addr == 0x1D3U) ? 1U :
                            (msg->addr == 0x316U) ? 2U :
                            (msg->addr == 0x394U) ? 3U :
-                           (msg->addr == 0x3A2U) ? 4U : 5U;
+                           (msg->addr == 0x3A2U) ? 4U :
+                           (msg->addr == 0x3A5U) ? 5U : 6U;
   chery_rx_seen_mask |= (uint8_t)(1U << seen_bit);
   if (msg->addr == 0x316U) {
     // DBC order is FR (bytes 0-1), FL (bytes 2-3).
@@ -109,8 +110,11 @@ static void chery_rx_hook(const CANPacket_t *msg) {
     chery_pcm_cruise_check();
   } else if (msg->addr == 0x3A5U) {
     chery_acc_active = GET_BIT(msg, 20U);
-    chery_stock_aeb = GET_BIT(msg, 46U);
     chery_pcm_cruise_check();
+  } else if (msg->addr == 0x387U) {
+    // SETTING.AEB_ACTIVE reads 3 when the stock AEB brakes. ACC.AEB_ACTIVE (0x3A5 bit 46) is the
+    // collision warning: it also rises with AEB switched off, so it is not an inhibitor.
+    chery_stock_aeb = ((msg->data[4] >> 6U) & 0x03U) == 3U;
   }
   chery_update_gas();
   chery_apply_inhibitors();
@@ -195,9 +199,9 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
     return controls_allowed && !other_buttons && !(res_plus && res_minus) && plus_ok && minus_ok;
   }
 
-  if (msg->addr == 0x307U) {
-    // LKAS_STATE is the cluster's lane-keep indicator. It actuates nothing, but the stock copy
-    // is blocked from forwarding, so openpilot has to be able to relay it.
+  if ((msg->addr == 0x307U) || (msg->addr == 0x3FCU)) {
+    // LKAS_STATE and HUD_ALERT are cluster indicators. They actuate nothing, but the stock copies
+    // are blocked from forwarding, so openpilot has to be able to relay them.
     return chery_health_ready() && (msg->bus == 0U) && (GET_LEN(msg) == 8U);
   }
 
@@ -244,9 +248,9 @@ static bool chery_fwd_hook(int bus_num, int addr) {
     // RX health checks are trusted; otherwise preserve OEM authority.
     return chery_longitudinal && chery_health_ready();
   }
-  if ((bus_num == 2) && (addr == 0x307U)) {
-    // openpilot re-emits LKAS_STATE every 50ms -- its own while steering, the camera's verbatim
-    // otherwise -- so the camera's copy must not also reach the cluster.
+  if ((bus_num == 2) && ((addr == 0x307U) || (addr == 0x3FCU))) {
+    // openpilot re-emits LKAS_STATE and HUD_ALERT every 50ms -- its own state while steering or
+    // overridden, the camera's verbatim otherwise -- so the camera's copies must not also reach the cluster.
     return chery_health_ready();
   }
   // Let stock steering pass through only when the measured rack angle is
@@ -326,12 +330,15 @@ static safety_config chery_init(uint16_t param) {
     {.msg = {{0x394, 0, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
     {.msg = {{0x3A2, 2, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
     {.msg = {{0x3A5, 2, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
+    {.msg = {{0x387, 2, 8, 20U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
   };
   static const CanMsg chery_tx_msgs[] = {{0x345, 0, 8, .check_relay = true, .disable_static_blocking = true},
                                          {0x307, 0, 8, .check_relay = true, .disable_static_blocking = true},
+                                         {0x3FC, 0, 8, .check_relay = true, .disable_static_blocking = true},
                                          {0x360, 2, 6, .check_relay = false, .disable_static_blocking = true}};
   static const CanMsg chery_long_tx_msgs[] = {{0x345, 0, 8, .check_relay = true, .disable_static_blocking = true},
                                               {0x307, 0, 8, .check_relay = true, .disable_static_blocking = true},
+                                              {0x3FC, 0, 8, .check_relay = true, .disable_static_blocking = true},
                                               {0x360, 2, 6, .check_relay = false, .disable_static_blocking = true},
                                               {0x3A2, 0, 8, .check_relay = true, .disable_static_blocking = true}};
   safety_config config = {

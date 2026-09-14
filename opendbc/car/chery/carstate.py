@@ -29,6 +29,7 @@ class CarState(CarStateBase):
     self.acc_active = False
     self.cruise_enabled_prev = False
     self.lkas_state = {}
+    self.hud_alert = {}
     self.eps_dead_frames = 0
     self.steer_angle_hr_last = 0.0
     self.steer_rate_sign = 1
@@ -45,7 +46,7 @@ class CarState(CarStateBase):
       pt_messages += [("BSM_LEFT", 10), ("BSM_RIGHT", 10)]
     cam_messages = [
       ("ACC_CMD", 50), ("ACC", 50), ("LKAS_CAM_CMD_345", 50),
-      ("LKAS_STATE", 20), ("SETTING", 20), ("LEAD_FRONT", 20),
+      ("LKAS_STATE", 20), ("SETTING", 20), ("LEAD_FRONT", 20), ("HUD_ALERT", 20),
     ]
     loopback_messages = [("LKAS_CAM_CMD_345", 0), ("ACC_CMD", 0)]
     can_bus = CanBus(CP)
@@ -165,6 +166,7 @@ class CarState(CarStateBase):
     ret.rightBlinker = cp.vl["BCM_SIGNAL_1"]["SIGN_SIGNAL"] == 1
     self.lkas_cmd = cp_cam.vl["LKAS_CAM_CMD_345"].copy()
     self.lkas_state = cp_cam.vl["LKAS_STATE"].copy()
+    self.hud_alert = cp_cam.vl["HUD_ALERT"].copy()
     self.acc_cmd = cp_cam.vl["ACC_CMD"].copy()
     ret.steerFaultTemporary = self._update_eps_fault(ret, can_parsers[Bus.loopback], cp)
     if self.CP.enableBsm:

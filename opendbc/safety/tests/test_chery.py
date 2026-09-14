@@ -18,6 +18,7 @@ RX_LAYOUT = {
   0x394: (0, 8, 50),
   0x3A2: (2, 8, 50),
   0x3A5: (2, 8, 50),
+  0x387: (2, 8, 20),
 }
 
 GOLDEN_FRAMES = {
@@ -27,6 +28,7 @@ GOLDEN_FRAMES = {
   (0x394, 0): bytes.fromhex("17b000000800038a"),
   (0x3A2, 2): bytes.fromhex("7d1102027f710f57"),
   (0x3A5, 2): bytes.fromhex("0000000000000fb1"),
+  (0x387, 2): bytes.fromhex("120a0012840a0861"),
 }
 
 def _j1850(data):
@@ -45,12 +47,12 @@ def _checksum(address, data):
 
 
 class TestCherySafety(SafetyTest):
-  TX_MSGS = [[0x345, 0], [0x307, 0], [0x360, 2]]
+  TX_MSGS = [[0x345, 0], [0x307, 0], [0x3FC, 0], [0x360, 2]]
   FWD_BUS_LOOKUP = {0: 2, 2: 0}
-  # 0x307 and 0x3A2 are blocked only once RX health is trusted, so they are not statically
+  # 0x307, 0x3FC and 0x3A2 are blocked only once RX health is trusted, so they are not statically
   # blacklisted -- see test_hud_forwarding_and_transmission.
   FWD_BLACKLISTED_ADDRS = {2: [0x345]}
-  RELAY_MALFUNCTION_ADDRS = {0: (0x345, 0x307)}
+  RELAY_MALFUNCTION_ADDRS = {0: (0x345, 0x307, 0x3FC)}
 
   @classmethod
   def setUpClass(cls):
@@ -108,9 +110,10 @@ class TestCherySafety(SafetyTest):
     data[0] = calculate_crc(bytes(data[1:]))
     return libsafety_py.make_CANPacket(address, bus, data[:length])
 
-  def _hud_msg(self, bus=0, length=8, lka_active=1):
+  def _hud_msg(self, bus=0, length=8, lka_active=1, name="LKAS_STATE"):
     packer = CANPacker("chery_canfd")
-    address, data, _ = packer.make_can_msg("LKAS_STATE", bus, {"LKA_ACTIVE": lka_active})
+    values = {"LKA_ACTIVE": lka_active} if name == "LKAS_STATE" else {"ICA_WARNING": 6 * lka_active}
+    address, data, _ = packer.make_can_msg(name, bus, values)
     data = bytearray(data)
     data[-1] = calculate_crc(bytes(data[:-1]))
     return libsafety_py.make_CANPacket(address, bus, data[:length])
@@ -189,8 +192,13 @@ class TestCherySafety(SafetyTest):
     elif address == 0x3A5:
       if "active" in fields:
         data[2] = (data[2] & ~(1 << 4)) | (int(fields["active"]) << 4)
+      if "fcw" in fields:
+        data[5] = (data[5] & ~(1 << 6)) | (int(fields["fcw"]) << 6)
+      data[6] = (data[6] & 0xF0) | counter
+      data[7] = _checksum(address, data)
+    elif address == 0x387:
       if "aeb" in fields:
-        data[5] = (data[5] & ~(1 << 6)) | (int(fields["aeb"]) << 6)
+        data[4] = (data[4] & 0x3F) | (int(fields["aeb"]) << 6)
       data[6] = (data[6] & 0xF0) | counter
       data[7] = _checksum(address, data)
     return libsafety_py.make_CANPacket(address, bus, data)
@@ -217,7 +225,7 @@ class TestCherySafety(SafetyTest):
 
   def test_registration_and_exact_rx_layout(self):
     self.assertEqual(self.safety.get_current_safety_mode(), SAFETY_CHERY)
-    self.assertEqual(self.safety.get_current_safety_rx_checks_len(), 6)
+    self.assertEqual(self.safety.get_current_safety_rx_checks_len(), len(RX_LAYOUT))
     for index, (address, (bus, dlc, frequency)) in enumerate(RX_LAYOUT.items()):
       self.assertEqual(self.safety.get_rx_check_addr(index), address)
       self.assertEqual(self.safety.get_rx_check_bus(index), bus)
@@ -451,12 +459,12 @@ class TestCherySafety(SafetyTest):
 
   def test_longitudinal_aeb_and_rx_inhibitors_allow_only_inactive_command(self):
     self._enable_longitudinal()
-    for field, address in (("brake", 0x03E), ("acc_gas", 0x3A2), ("aeb", 0x3A5)):
+    for field, address, value in (("brake", 0x03E, 1), ("acc_gas", 0x3A2, 1), ("aeb", 0x387, 3)):
       self.setUp()
       self._enable_longitudinal()
       self._seed_all()
       self._validate_config()
-      self._rx_field(address, **{field: 1})
+      self._rx_field(address, **{field: value})
       self.safety.set_controls_allowed(True)
       self.assertFalse(self._tx(self._acc_cmd_msg(511)), field)
       # The accelerator is an override: stock's inactive command still goes out. Brake and AEB
@@ -472,12 +480,14 @@ class TestCherySafety(SafetyTest):
     self._enable_longitudinal()
     self._seed_all()
     self._validate_config()
-    self._rx_field(0x3A5, aeb=1, active=1)
+    self._rx_field(0x387, aeb=3)
+    self._rx_field(0x3A5, active=1)
     self.safety.set_controls_allowed(True)
     self.assertFalse(self._tx(self._acc_cmd_msg(-24)))
     self.assertFalse(self._tx(self._acc_cmd_msg(511)))
     self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), 0)
-    self._rx_field(0x3A5, aeb=0, active=0)
+    self._rx_field(0x387, aeb=0)
+    self._rx_field(0x3A5, active=0)
     self._rx_field(0x3A2, state=2)
     self.assertTrue(self._tx(self._acc_cmd_msg(-24)))
     self.assertEqual(self.safety.safety_fwd_hook(2, 0x3A2), -1)
@@ -738,19 +748,22 @@ class TestCherySafety(SafetyTest):
     self.assertFalse(self._tx(self._button_msg(RES_PLUS=1)))
 
   def test_hud_forwarding_and_transmission(self):
-    # Until RX health is trusted the camera keeps the cluster, and openpilot may not transmit.
-    self.assertFalse(self._tx(self._hud_msg()))
-    self.assertEqual(0, self.safety.safety_fwd_hook(2, 0x307))
-    self._engage()
-    self.assertEqual(-1, self.safety.safety_fwd_hook(2, 0x307))
-    self.assertTrue(self._tx(self._hud_msg()))
-    self.assertTrue(self._tx(self._hud_msg(lka_active=0)))
-    self.assertFalse(self._tx(self._hud_msg(bus=2)))
-    self.assertFalse(self._tx(self._hud_msg(length=7)))
-    # It carries no actuation, so it survives a disengagement.
-    self._rx_field(0x3A5, active=0)
-    self.assertFalse(self.safety.get_controls_allowed())
-    self.assertTrue(self._tx(self._hud_msg()))
+    for name, addr in (("LKAS_STATE", 0x307), ("HUD_ALERT", 0x3FC)):
+      with self.subTest(name=name):
+        self.setUp()
+        # Until RX health is trusted the camera keeps the cluster, and openpilot may not transmit.
+        self.assertFalse(self._tx(self._hud_msg(name=name)))
+        self.assertEqual(0, self.safety.safety_fwd_hook(2, addr))
+        self._engage()
+        self.assertEqual(-1, self.safety.safety_fwd_hook(2, addr))
+        self.assertTrue(self._tx(self._hud_msg(name=name)))
+        self.assertTrue(self._tx(self._hud_msg(lka_active=0, name=name)))
+        self.assertFalse(self._tx(self._hud_msg(bus=2, name=name)))
+        self.assertFalse(self._tx(self._hud_msg(length=7, name=name)))
+        # It carries no actuation, so it survives a disengagement.
+        self._rx_field(0x3A5, active=0)
+        self.assertFalse(self.safety.get_controls_allowed())
+        self.assertTrue(self._tx(self._hud_msg(name=name)))
 
   def test_forwarding_routes_and_relay_protection(self):
     for addr, source, destination in (
@@ -862,21 +875,18 @@ class TestCherySafety(SafetyTest):
     self.assertTrue(self.safety.get_controls_allowed())
 
   def test_each_inhibitor_revokes_and_stays_revoked(self):
-    for field, address, value in (("brake", 0x03E, 1), ("aeb", 0x3A5, 1)):
+    for field, address, value in (("brake", 0x03E, 1), ("aeb", 0x387, 3)):
       for speed in (0, 100) if field == "brake" else (100,):
         self.setUp()
         self._seed_all()
         self._validate_config()
         self._rx_field(0x316, fr=speed, fl=speed)
         self._rx_field(address, **{field: value})
-        self._rx_field(0x3A2, state=2, acc_gas=value if field == "acc_gas" else 0)
-        self._rx_field(0x3A5, active=1, aeb=value if field == "aeb" else 0)
+        self._rx_field(0x3A2, state=2)
+        self._rx_field(0x3A5, active=1)
         self.assertFalse(self.safety.get_controls_allowed())
-        release = {field: 0}
-        if field == "aeb":
-          release["active"] = 1
-        self._rx_field(address, **release)
-        self._rx_field(0x3A5, active=1, aeb=0)
+        self._rx_field(address, **{field: 0})
+        self._rx_field(0x3A5, active=1)
         self.assertFalse(self.safety.get_controls_allowed())
         self._rx_field(0x03E, brake=0)
         self._rx_field(0x3A2, acc_gas=0)
@@ -884,6 +894,17 @@ class TestCherySafety(SafetyTest):
         self._rx_field(0x3A2, state=2)
         self._rx_field(0x3A5, active=1)
         self.assertTrue(self.safety.get_controls_allowed())
+
+  def test_collision_warning_is_not_an_inhibitor(self):
+    """ACC.AEB_ACTIVE rises for the dash collision warning even with AEB off; carstate reports it as FCW."""
+    self._engage()
+    self._rx_field(0x3A5, active=1, fcw=1)
+    self.assertTrue(self.safety.get_controls_allowed())
+    for aeb in (1, 2):
+      self._rx_field(0x387, aeb=aeb)
+      self.assertTrue(self.safety.get_controls_allowed())
+    self._rx_field(0x387, aeb=3)
+    self.assertFalse(self.safety.get_controls_allowed())
 
   def test_gas_override_keeps_lateral_controls(self):
     """On a driver accelerator override the stock ACC reports ACC_STATE=1 with ACC_ACTIVE still 1."""

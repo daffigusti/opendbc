@@ -883,8 +883,9 @@ def test_steering_torque_takes_sign_from_wheel_motion():
   cp, parsers, packer = state_fixture()
   car_state = CarState(cp, structs.CarParamsSP())
   torques = []
-  for angle in (10.0, 12.0, 12.0, 8.0, 8.0):
-    feed(parsers, packer, Bus.pt, [("STEER_SENSOR", {"STEER_ANGLE_HR": angle}),
+  # (angle, STEER_RATE): a one-LSB wiggle at rate 0 is sensor jitter and must not flip the sign
+  for angle, rate in ((10.0, 4), (12.0, 4), (11.9375, 0), (8.0, 4), (8.0625, 0)):
+    feed(parsers, packer, Bus.pt, [("STEER_SENSOR", {"STEER_ANGLE_HR": angle, "STEER_RATE": rate}),
                                    ("STEER_SENSOR_2", {"TORQUE_DRIVER": 100})])
     torques.append(car_state.update(parsers)[0].steeringTorque)
   assert torques[1:] == pytest.approx([100, 100, -100, -100], abs=0.5)

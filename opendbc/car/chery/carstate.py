@@ -92,10 +92,12 @@ class CarState(CarStateBase):
     """STEER_SENSOR.STEER_RATE is unsigned; the direction comes from its high-resolution angle.
 
     Fitted on 45k frames of a real route: |rate| = 4 deg/s per LSB (r=0.992), and STEER_ANGLE_HR
-    matches STEER_ANGLE at 0.0625 deg per LSB (r=1.000). The sign is held while the angle is still.
+    matches STEER_ANGLE at 0.0625 deg per LSB (r=1.000). The sign is held while STEER_RATE reads 0:
+    a still wheel jitters one LSB either way (339 flips in 9.7k still frames), which would otherwise
+    flip the borrowed sign of a driver holding the wheel.
     """
     angle = steer_sensor["STEER_ANGLE_HR"]
-    if angle != self.steer_angle_hr_last:
+    if angle != self.steer_angle_hr_last and steer_sensor["STEER_RATE"] > 0:
       self.steer_rate_sign = 1 if angle > self.steer_angle_hr_last else -1
     self.steer_angle_hr_last = angle
     return self.steer_rate_sign * steer_sensor["STEER_RATE"]

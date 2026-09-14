@@ -213,7 +213,7 @@ def decode_steering_message(message):
 
 def test_lateral_first_frame_outside_angle_limit_stays_inactive():
   controller = make_controller()
-  measured_angle = 301.0
+  measured_angle = 361.0
   actuators, sends = controller.update(make_control(True, 80.0), structs.CarControlSP(), make_state(measured_angle), 0)
 
   steering_message = next(send for send in sends if send[0] == 0x345)
@@ -314,11 +314,11 @@ def test_lateral_transition_outside_angle_limit_stays_inactive_until_in_range():
   controller = make_controller()
   control = make_control(True, 80.0)
 
-  actuators, sends = controller.update(control, structs.CarControlSP(), make_state(-301.0), 0)
+  actuators, sends = controller.update(control, structs.CarControlSP(), make_state(-361.0), 0)
   values = decode_steering_message(next(send for send in sends if send[0] == 0x345))
   assert values["LKA_ACTIVE"] == 0
-  assert values["CMD"] == round(-301.0 * 10 - 392)
-  assert actuators.steeringAngleDeg == -301.0
+  assert values["CMD"] == round(-361.0 * 10 - 392)
+  assert actuators.steeringAngleDeg == -361.0
 
   controller.update(control, structs.CarControlSP(), make_state(0.0), 10_000_000)
   actuators, sends = controller.update(control, structs.CarControlSP(), make_state(0.0), 20_000_000)
@@ -338,11 +338,11 @@ def test_lateral_inactive_extreme_angle_is_not_transmitted(measured_angle):
   assert actuators.steeringAngleDeg == measured_angle
 
 
-def test_lateral_hard_cap_is_300_degrees():
+def test_lateral_hard_cap_is_360_degrees():
   controller = make_controller()
-  controller.apply_angle_last = 299.0
-  actuators, _sends = controller.update(make_control(True, 500.0), structs.CarControlSP(), make_state(299.0), 0)
-  assert abs(actuators.steeringAngleDeg) <= 300.
+  controller.apply_angle_last = 359.0
+  actuators, _sends = controller.update(make_control(True, 500.0), structs.CarControlSP(), make_state(359.0), 0)
+  assert abs(actuators.steeringAngleDeg) <= 360.
 
 
 def test_lateral_limits_use_front_wheel_mean_not_rear_speed():

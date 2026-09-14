@@ -225,9 +225,9 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
   const int desired_angle = (to_signed(raw, 13) + 392) * 10;
   const bool steer_control_enabled = GET_BIT(msg, 9U);
 
-  // Active commands have an explicit +/-300 degree cap before VM checks. Matches the controller's
+  // Active commands have an explicit +/-360 degree cap before VM checks. Matches the controller's
   // STEER_ANGLE_MAX; the 13-bit encoding tops out at 370.4.
-  if (steer_control_enabled && ((desired_angle > 30000) || (desired_angle < -30000))) {
+  if (steer_control_enabled && ((desired_angle > 36000) || (desired_angle < -36000))) {
     return false;
   }
 
@@ -237,7 +237,7 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
   }
 
   // Never enable lateral control while rack angle is outside the controller cap.
-  if (steer_control_enabled && (chery_abs(chery_current_angle_deg100) > 30000)) {
+  if (steer_control_enabled && (chery_abs(chery_current_angle_deg100) > 36000)) {
     return false;
   }
 

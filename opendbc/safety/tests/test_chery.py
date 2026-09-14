@@ -494,10 +494,10 @@ class TestCherySafety(SafetyTest):
 
   def test_angle_command_signed13_boundaries_and_message_shape(self):
     self.safety.set_controls_allowed(True)
-    for angle in (-300.1, -300.0, 300.0, 300.1):
+    for angle in (-360.1, -360.0, 360.0, 360.1):
       raw = round(angle * 10 - 392)
       self.safety.set_desired_angle_last(round(angle * 100))
-      allowed = abs(angle) <= 300.0
+      allowed = abs(angle) <= 360.0
       self.assertEqual(allowed, self._tx(self._angle_cmd_msg(angle, True)))
 
     # Sign bit and positive/negative edge encodings must not alias.
@@ -519,9 +519,9 @@ class TestCherySafety(SafetyTest):
       self.safety.set_desired_angle_last(0)
       self.assertEqual(allowed, self._tx(self._angle_cmd_msg(angle, True)))
 
-  def test_active_measured_angle_accepts_300_rejects_300_point_one(self):
+  def test_active_measured_angle_accepts_360_rejects_360_point_one(self):
     self.safety.set_controls_allowed(True)
-    for angle, allowed in ((300.0, True), (300.1, False), (-300.0, True), (-300.1, False)):
+    for angle, allowed in ((360.0, True), (360.1, False), (-360.0, True), (-360.1, False)):
       self._reset_angle_samples(angle)
       self.safety.set_desired_angle_last(round(angle * 100))
       self.assertEqual(allowed, self._tx(self._angle_cmd_msg(angle, True)))
@@ -555,7 +555,7 @@ class TestCherySafety(SafetyTest):
     return VehicleModel(CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5))
 
   def _vm_angle(self, speed):
-    return min(300.0, get_max_angle_vm(max(speed, 1.0), self._vm(), CarControllerParams))
+    return min(360.0, get_max_angle_vm(max(speed, 1.0), self._vm(), CarControllerParams))
 
   def test_vm_lateral_accel_boundaries(self):
     for speed in (0, 1, 5, 10, 15, 30, 50):
@@ -575,13 +575,13 @@ class TestCherySafety(SafetyTest):
     for speed in (0, 1, 5, 10, 15, 30, 50):
       model_speed = max(speed, 1)
       self._reset_speed_samples(model_speed + 1)
-      limit = min(300.0, 5.0, get_max_angle_delta_vm(model_speed, self._vm(), CarControllerParams))
+      limit = min(360.0, 5.0, get_max_angle_delta_vm(model_speed, self._vm(), CarControllerParams))
       self.safety.set_controls_allowed(True)
       self.safety.set_desired_angle_last(0)
       boundary = math.floor(limit * 10) / 10
       self.assertTrue(self._tx(self._angle_cmd_msg(boundary, True)), (speed, limit))
       self.safety.set_desired_angle_last(0)
-      if limit < 300.0:
+      if limit < 360.0:
         outside = math.ceil(limit * 10) / 10 + 0.1
         self.assertFalse(self._tx(self._angle_cmd_msg(outside, True)), (speed, limit, boundary, outside))
 

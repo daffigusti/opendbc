@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from opendbc.car import Bus
+from opendbc.car import Bus, DT_CTRL
 from opendbc.car import structs
 from opendbc.can import CANPacker, CANParser
 from opendbc.car.chery.cherycan import CanBus, calculate_crc, create_hud_alert
@@ -826,6 +826,44 @@ def test_stopped_only_holds_an_existing_engagement():
   assert car_state.update(parsers)[0].cruiseState.enabled
   feed(parsers, packer, Bus.cam, [("ACC", {"ACC_ACTIVE": 0.0}), ("ACC_CMD", {"ACC_STATE": 2.0, "STOPPED": 1.0})])
   assert car_state.update(parsers)[0].cruiseState.enabled
+
+
+def test_unresponsive_driver_stop_brakes_to_a_held_standstill():
+  # Driver monitoring's noResponseForceDecel drops the planner's cruise speed to zero. On Chery that
+  # only reaches the car through openpilot longitudinal: brake from 80 kph, then hold for a minute
+  # after the stock ACC lets go of ACC_ACTIVE, without ever sending the standstill brake while rolling.
+  controller = make_controller()
+  controller.CP.openpilotLongitudinalControl = True
+  parser = CANParser("chery_canfd", [("ACC_CMD", 0)], 0)
+  speed, frame, rolling_cmds, held_cmds = 80 / 3.6, 0, [], []
+  while frame < 80 * 100:
+    standstill = speed == 0.
+    control = structs.CarControl()
+    control.longActive = True
+    control.actuators.accel = -0.5 if standstill else -1.2
+    state = make_state(0.0, speed, standstill=standstill)
+    state.acc_cmd = acc_stock()
+    _actuators, sends = controller.update(control.as_reader(), structs.CarControlSP(), state, frame * 10_000_000)
+    for send in sends:
+      if send[0] == 0x3A2:
+        parser.update([[frame * 10_000_000, [send]]])
+        (held_cmds if standstill else rolling_cmds).append(dict(parser.vl["ACC_CMD"]))
+    speed = max(0., speed - 1.2 * DT_CTRL)
+    frame += 1
+
+  assert rolling_cmds and all(v["CMD"] < 0 and v["STOPPED"] == 0 and v["ACC_STATE"] == 3 for v in rolling_cmds)
+  assert len(held_cmds) >= 60 * 50
+  assert all(v["CMD"] == 400 and v["STOPPED"] == 1 and v["ACCEL_ON"] == 0 for v in held_cmds)
+
+  # The stock ACC drops ACC_ACTIVE ~3 s into the hold; the engagement has to survive that for the whole minute.
+  cp, parsers, packer = state_fixture()
+  car_state = CarState(cp, structs.CarParamsSP())
+  feed(parsers, packer, Bus.cam, [("ACC", {"ACC_ACTIVE": 1.0}), ("ACC_CMD", {"ACC_STATE": 3.0})])
+  assert car_state.update(parsers)[0].cruiseState.enabled
+  for _ in range(60 * 50):
+    feed(parsers, packer, Bus.cam, [("ACC", {"ACC_ACTIVE": 0.0}), ("ACC_CMD", {"ACC_STATE": 2.0, "STOPPED": 1.0})])
+    out = car_state.update(parsers)[0]
+    assert out.cruiseState.enabled and out.cruiseState.standstill
 
 
 # TORQUE_DRIVER is quantised to 0.24, so the pair straddling the threshold is 69.84 / 70.08.

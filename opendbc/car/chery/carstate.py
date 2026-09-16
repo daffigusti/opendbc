@@ -143,16 +143,18 @@ class CarState(CarStateBase):
     # The threshold is the one the working fork runs with; see KNOWN_GAPS.md.
     ret.steeringPressed = abs(ret.steeringTorque) > CarControllerParams.STEER_THRESHOLD
 
-    # ACC_AVAILABLE reads 3 while the driver overrides with the accelerator and ACC_ACTIVE stays
-    # 1. Treating that as unavailable raised wrongCarMode and dropped lateral on every gas press.
-    acc_available = cp_cam.vl["SETTING"]["ACC_AVAILABLE"]
-    ret.cruiseState.available = acc_available in (1, 2) or (acc_available == 3 and self.acc_active)
     # Mirror the panda's chery_pcm_cruise_check. The camera can abort with ACC_STATE=0 and STOPPED=1
     # while ACC_ACTIVE still reads 1 for ~300ms; the panda drops controls on that frame, and if
     # openpilot stayed engaged its blocked sends timed out the loopback parser and raised canError.
     acc_state = cp_cam.vl["ACC_CMD"]["ACC_STATE"]
     gas_override = acc_state == 1 and bool(cp_cam.vl["ACC_CMD"]["GAS_PRESSED"]) and self.acc_active
     acc_engaged = self.acc_active or (bool(cp_cam.vl["ACC_CMD"]["STOPPED"]) and self.cruise_enabled_prev)
+    # ACC_AVAILABLE reads 3 while the driver overrides with the accelerator and ACC_ACTIVE stays
+    # 1, and again once the standstill hold drops ACC_ACTIVE to wait for RES+. Treating either as
+    # unavailable raised wrongCarMode: every gas press dropped lateral, and every hold past ~3s
+    # disengaged openpilot before it could tap RES+ (route 494 seg 22), so the car never resumed.
+    acc_available = cp_cam.vl["SETTING"]["ACC_AVAILABLE"]
+    ret.cruiseState.available = acc_available in (1, 2) or (acc_available == 3 and acc_engaged)
     ret.cruiseState.enabled = acc_engaged and (acc_state in (2, 3) or gas_override)
     self.cruise_enabled_prev = ret.cruiseState.enabled
     ret.cruiseState.speed = cp_cam.vl["SETTING"]["CC_SPEED"] * CV.KPH_TO_MS

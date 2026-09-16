@@ -471,6 +471,26 @@ def test_acc_available_values(available, acc_active, expected):
   assert state.cruiseState.available is expected
 
 
+# Route 494 seg 22: ~3s into a standstill hold the ACC drops ACC_ACTIVE and ACC_AVAILABLE reads 3
+# while it waits for RES+. That must stay available, or wrongCarMode disengages before the resume tap.
+def test_standstill_hold_stays_available():
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
+  packer = CANPacker("chery_canfd")
+  CS = CarState(cp, structs.CarParamsSP())
+  for available, acc_active in ((2, 1), (3, 0)):
+    frames = [packer.make_can_msg(message, parsers[Bus.cam].bus, values) for message, values in (
+      ("SETTING", {"ACC_AVAILABLE": float(available)}),
+      ("ACC", {"ACC_ACTIVE": float(acc_active)}),
+      ("ACC_CMD", {"ACC_STATE": 2.0, "STOPPED": 1.0}),
+    )]
+    parsers[Bus.cam].update([[0, frames]])
+    state, _ = CS.update(parsers)
+  assert state.cruiseState.available
+  assert state.cruiseState.enabled
+  assert state.cruiseState.standstill
+
+
 @pytest.mark.parametrize("acc_aeb, setting_aeb, aeb, fcw", [
   (0, 0, False, False),
   (0, 2, False, False),

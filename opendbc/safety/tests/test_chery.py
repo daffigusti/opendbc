@@ -19,6 +19,7 @@ RX_LAYOUT = {
   0x3A2: (2, 8, 50),
   0x3A5: (2, 8, 50),
   0x387: (2, 8, 20),
+  0x345: (2, 8, 50),
 }
 
 GOLDEN_FRAMES = {
@@ -29,6 +30,7 @@ GOLDEN_FRAMES = {
   (0x3A2, 2): bytes.fromhex("7d1102027f710f57"),
   (0x3A5, 2): bytes.fromhex("0000000000000fb1"),
   (0x387, 2): bytes.fromhex("120a0012840a0861"),
+  (0x345, 2): bytes.fromhex("78c4000cbefe2f27"),
 }
 
 def _j1850(data):
@@ -194,6 +196,11 @@ class TestCherySafety(SafetyTest):
         data[2] = (data[2] & ~(1 << 4)) | (int(fields["active"]) << 4)
       if "fcw" in fields:
         data[5] = (data[5] & ~(1 << 6)) | (int(fields["fcw"]) << 6)
+      data[6] = (data[6] & 0xF0) | counter
+      data[7] = _checksum(address, data)
+    elif address == 0x345:
+      if "raw" in fields:
+        data[:7] = fields["raw"][:7]
       data[6] = (data[6] & 0xF0) | counter
       data[7] = _checksum(address, data)
     elif address == 0x387:
@@ -535,6 +542,63 @@ class TestCherySafety(SafetyTest):
     self._reset_angle_samples(370.4)
     self.assertTrue(self._tx(self._angle_cmd_msg(370.4, False)))
     self.assertFalse(self._tx(self._angle_cmd_msg(370.5, False)))
+
+  def _stock_steering(self, raw="7a6600000000abf5"):
+    """A camera 0x345 frame (LKA_ACTIVE=1 by default) received on bus 2, and its copy for bus 0."""
+    received = self._packet(0x345, 2, raw=bytes.fromhex(raw))
+    self.assertTrue(self._rx(received))
+    return libsafety_py.make_CANPacket(0x345, 0, bytes(received.data[0:8]))
+
+  def test_stock_steering_relay_needs_no_controls_and_goes_out_once(self):
+    self.safety.set_controls_allowed(False)
+    relay = self._stock_steering()
+    self.assertTrue(self._tx(relay))
+    self.assertFalse(self._tx(relay))
+
+  def test_stock_steering_relay_must_be_byte_exact(self):
+    self.safety.set_controls_allowed(False)
+    for byte in range(8):
+      relay = self._stock_steering()
+      relay.data[byte] ^= 1
+      self.assertFalse(self._tx(relay), byte)
+
+  def test_stock_steering_relay_window_is_the_two_newest_frames(self):
+    self.safety.set_controls_allowed(False)
+    third, second, newest = (self._stock_steering(raw) for raw in
+                             ("7a6600000000abf5", "7a62000cbefe2cbb", "7a5e000cbefe2d95"))
+    self.assertFalse(self._tx(third))
+    # One frame late is still relayable, but a relayed frame retires everything older than it.
+    self.assertTrue(self._tx(second))
+    self.assertTrue(self._tx(newest))
+    self.assertFalse(self._tx(second))
+
+    older, newer = self._stock_steering("7a5a001519002ee4"), self._stock_steering("7c1b00fee73c4a3b")
+    self.assertTrue(self._tx(newer))
+    self.assertFalse(self._tx(older))
+
+  def test_stock_steering_relay_ignores_invalid_or_wrong_bus_frames(self):
+    self.safety.set_controls_allowed(False)
+    received = self._packet(0x345, 2, raw=bytes.fromhex("7a6600000000abf5"))
+    received.data[7] ^= 1
+    self.assertFalse(self._rx(received))
+    self.assertFalse(self._tx(libsafety_py.make_CANPacket(0x345, 0, bytes(received.data[0:8]))))
+
+    relay = self._stock_steering()
+    self.assertFalse(self._tx(libsafety_py.make_CANPacket(0x345, 2, bytes(relay.data[0:8]))))
+    self.safety.set_safety_hooks(SAFETY_CHERY, 0)
+    self.assertFalse(self._tx(relay))
+
+  def test_stock_steering_relay_hands_rate_limit_history_to_openpilot(self):
+    self._reset_speed_samples(1)
+    self._reset_angle_samples(0)
+    self.safety.set_controls_allowed(True)
+    # The camera left the rack commanding 3.3 degrees; openpilot resumes from there, not from 0.
+    self.assertTrue(self._tx(self._stock_steering("7a6600000000abf5")))
+    self.assertEqual(330, self.safety.get_desired_angle_last())
+    self.assertTrue(self._tx(self._angle_cmd_msg(8.3, True)))
+    # An inactive stock frame leaves openpilot to start from the measured angle.
+    self.assertTrue(self._tx(self._stock_steering("78c4000cbefe2f27")))
+    self.assertEqual(0, self.safety.get_desired_angle_last())
 
   def test_speed_measurement_representable_range(self):
     for speed in (0, 1, 5, 10, 15, 30, 50, 75):

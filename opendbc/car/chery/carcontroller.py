@@ -2,7 +2,8 @@ from opendbc.can import CANPacker
 from opendbc.car import Bus, DT_CTRL, structs
 from opendbc.car.chery.cherycan import (CanBus, create_acc_control, create_button_control,
                                         create_hud_alert, create_lkas_state_hud, create_steering_control,
-                                        limit_active_steering_angle, quantize_steering_angle)
+                                        create_stock_steering_relay, limit_active_steering_angle,
+                                        quantize_steering_angle, steering_angle)
 from opendbc.car.chery.values import CarControllerParams
 from opendbc.car.lateral import apply_steer_angle_limits_vm
 from opendbc.car.interfaces import CarControllerBase
@@ -135,8 +136,15 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
       wire_angle = (limit_active_steering_angle(apply_angle, self.apply_angle_last)
                     if command_active else quantize_steering_angle(apply_angle, False))
       if abs(wire_angle) <= 370.4:
-        can_sends.append(create_steering_control(self.packer, self.CAN.main, wire_angle, command_active, CS.lkas_cmd))
-        self.apply_angle_last = wire_angle
+        # Stock 0x345 is blocked from forwarding, so while openpilot's lateral is off or the driver
+        # holds the wheel the camera's frame is relayed verbatim and its lane keeping stays available.
+        if not recovering and not command_active and (not CC.latActive or self.steer_override):
+          can_sends.append(create_stock_steering_relay(self.packer, self.CAN.main, CS.lkas_cmd))
+          # Panda rate limits openpilot's next active command from where the camera left the rack.
+          self.apply_angle_last = steering_angle(CS.lkas_cmd["CMD"]) if CS.lkas_cmd["LKA_ACTIVE"] else wire_angle
+        else:
+          can_sends.append(create_steering_control(self.packer, self.CAN.main, wire_angle, command_active, CS.lkas_cmd))
+          self.apply_angle_last = wire_angle
         self.angle_command_skipped = False
         self.lkas_active_last = command_active
       else:

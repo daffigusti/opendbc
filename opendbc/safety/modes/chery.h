@@ -14,6 +14,11 @@ static const uint16_t CHERY_PARAM_LONG_CONTROL = 1U;
 static int chery_current_angle_deg100 = 0;
 static uint8_t chery_rx_seen_mask = 0U;
 static bool chery_reauth_required = false;
+// The camera's two newest steering frames, newest first. While openpilot is not steering it relays
+// them so the stock lane keeping still reaches the EPS; each may go out once, and never after a newer one.
+#define CHERY_STOCK_LKAS_FRAMES 2
+static uint8_t chery_stock_lkas[CHERY_STOCK_LKAS_FRAMES][8];
+static bool chery_stock_lkas_relayable[CHERY_STOCK_LKAS_FRAMES];
 
 static int chery_abs(int value) {
   return value < 0 ? -value : value;
@@ -72,8 +77,12 @@ static void chery_rx_hook(const CANPacket_t *msg) {
                            (msg->addr == 0x316U) ? 2U :
                            (msg->addr == 0x394U) ? 3U :
                            (msg->addr == 0x3A2U) ? 4U :
-                           (msg->addr == 0x3A5U) ? 5U : 6U;
-  chery_rx_seen_mask |= (uint8_t)(1U << seen_bit);
+                           (msg->addr == 0x3A5U) ? 5U :
+                           (msg->addr == 0x387U) ? 6U : 8U;
+  // 0x345 carries no authorization input, so it is left out of the health mask.
+  if (seen_bit < 8U) {
+    chery_rx_seen_mask |= (uint8_t)(1U << seen_bit);
+  }
   if (msg->addr == 0x316U) {
     // DBC order is FR (bytes 0-1), FL (bytes 2-3).
     const int front_right = to_signed((msg->data[0] << 8U) | msg->data[1], 16);
@@ -115,6 +124,17 @@ static void chery_rx_hook(const CANPacket_t *msg) {
     // SETTING.AEB_ACTIVE reads 3 when the stock AEB brakes. ACC.AEB_ACTIVE (0x3A5 bit 46) is the
     // collision warning: it also rises with AEB switched off, so it is not an inhibitor.
     chery_stock_aeb = ((msg->data[4] >> 6U) & 0x03U) == 3U;
+  } else if (msg->addr == 0x345U) {
+    for (int i = CHERY_STOCK_LKAS_FRAMES - 1; i > 0; i--) {
+      for (int b = 0; b < 8; b++) {
+        chery_stock_lkas[i][b] = chery_stock_lkas[i - 1][b];
+      }
+      chery_stock_lkas_relayable[i] = chery_stock_lkas_relayable[i - 1];
+    }
+    for (int b = 0; b < 8; b++) {
+      chery_stock_lkas[0][b] = msg->data[b];
+    }
+    chery_stock_lkas_relayable[0] = true;
   }
   chery_update_gas();
   chery_apply_inhibitors();
@@ -225,6 +245,24 @@ static bool chery_tx_hook(const CANPacket_t *msg) {
   const int desired_angle = (to_signed(raw, 13) + 392) * 10;
   const bool steer_control_enabled = GET_BIT(msg, 9U);
 
+  // A byte-exact copy of a camera frame is the stock lane keeping, which the car runs without
+  // openpilot too, so it needs no controls. Relaying it also retires every older frame.
+  for (int i = 0; i < CHERY_STOCK_LKAS_FRAMES; i++) {
+    bool same = chery_stock_lkas_relayable[i];
+    for (int b = 0; same && (b < 8); b++) {
+      same = chery_stock_lkas[i][b] == msg->data[b];
+    }
+    if (same) {
+      for (int j = i; j < CHERY_STOCK_LKAS_FRAMES; j++) {
+        chery_stock_lkas_relayable[j] = false;
+      }
+      // openpilot's next active command is rate limited from wherever the camera left the rack.
+      desired_angle_last = steer_control_enabled ? desired_angle :
+                           SAFETY_CLAMP(angle_meas.values[0], -CHERY_STEERING_LIMITS.max_angle, CHERY_STEERING_LIMITS.max_angle);
+      return true;
+    }
+  }
+
   // Active commands have an explicit +/-360 degree cap before VM checks. Matches the controller's
   // STEER_ANGLE_MAX; the 13-bit encoding tops out at 370.4.
   if (steer_control_enabled && ((desired_angle > 36000) || (desired_angle < -36000))) {
@@ -328,6 +366,9 @@ static safety_config chery_init(uint16_t param) {
   chery_current_angle_deg100 = 0;
   chery_rx_seen_mask = 0U;
   chery_reauth_required = false;
+  for (int i = 0; i < CHERY_STOCK_LKAS_FRAMES; i++) {
+    chery_stock_lkas_relayable[i] = false;
+  }
   // Require initial valid data and an explicit safety tick before authorizing ACC/MADS.
   safety_rx_checks_invalid = true;
   gas_pressed = false;
@@ -341,6 +382,7 @@ static safety_config chery_init(uint16_t param) {
     {.msg = {{0x3A2, 2, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
     {.msg = {{0x3A5, 2, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
     {.msg = {{0x387, 2, 8, 20U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
+    {.msg = {{0x345, 2, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, {0}, {0}}},
   };
   static const CanMsg chery_tx_msgs[] = {{0x345, 0, 8, .check_relay = true, .disable_static_blocking = true},
                                          {0x307, 0, 8, .check_relay = true, .disable_static_blocking = true},

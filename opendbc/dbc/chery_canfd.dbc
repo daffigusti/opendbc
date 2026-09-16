@@ -157,6 +157,7 @@ BO_ 837 LKAS_CAM_CMD_345: 8 XXX
  SG_ CMD : 6|13@0- (1,0) [-4096|4095] "" XXX
  SG_ NEW_SIGNAL_3 : 7|1@0+ (1,0) [0|1] "" XXX
  SG_ LKA_ACTIVE : 9|1@0+ (1,0) [0|1] "" XXX
+ SG_ NEW_SIGNAL_2 : 8|1@0+ (1,0) [0|1] "" XXX
  SG_ SET_X0 : 16|8@1+ (1,0) [0|255] "" XXX
  SG_ NEW_SIGNAL_5 : 31|8@0- (1,0) [0|255] "" XXX
  SG_ NEW_SIGNAL_6 : 39|8@0+ (1,0) [0|255] "" XXX
@@ -431,7 +432,9 @@ BO_ 1335 NEW_MSG_537: 8 XXX
 CM_ BO_ 1020 "Every bit is defined so the openpilot relay repacks the camera frame byte for byte; undefined bits were dropped and the relayed CRC went stale.";
 CM_ SG_ 1020 NEW_SIGNAL_4 "2 whenever the model sees both lane lines, ACC on or off; likely lane lines detected.";
 CM_ SG_ 1020 NEW_SIGNAL_6 "1 or 2; 2 mostly with ACC active above ~60 kph. Meaning unconfirmed.";
-CM_ SG_ 1020 NEW_SIGNAL_7 "1 or 2; 2 mostly with ACC active above ~60 kph. Meaning unconfirmed.";
+CM_ SG_ 1020 NEW_SIGNAL_7 "1 or 2; 2 mostly with ACC active above ~60 kph. Reads 3 while the camera's own lane keeping steers (route 00000494 seg 15, 2 of 2 interventions) and 1 for ~2.7 s after one; likely the yellow HUD lane-line warning. Not confirmed on the cluster.";
+CM_ SG_ 775 NEW_SIGNAL_2 "Reads 3 while the camera's own lane keeping steers, 1 otherwise: tracks LKAS_CAM_CMD_345.LKA_ACTIVE within 30 ms (corr 0.95, route 00000494 seg 15).";
+CM_ SG_ 837 NEW_SIGNAL_2 "Undefined bit the camera sets on some frames (49 of 3000, route 00000494 seg 15); defined so the stock steering relay is byte exact.";
 CM_ SG_ 1020 NEW_SIGNAL_3 "Centred on 0 (raw 256). With both lane lines seen: corr +0.52 to lane offset, -0.40 to curvature.";
 CM_ SG_ 1020 NEW_SIGNAL_12 "3 on every frame of route 00000488.";
 CM_ SG_ 1020 NEW_SIGNAL_14 "3 on every frame of route 00000488.";

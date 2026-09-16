@@ -138,12 +138,10 @@ def make_state(measured_angle: float, speed: float = 1.0, front_wheel_speed: flo
     out=state.as_reader(),
     acc_active=acc_active,
     gap_setting=3,
-    lkas_cmd={
-      "NEW_SIGNAL_5": 0,
-      "NEW_SIGNAL_6": 0,
-      "NEW_SIGNAL_7": 0,
-      "NEW_SIGNAL_1": 0,
-    },
+    lkas_cmd={name: 0 for name in (
+      "CMD", "NEW_SIGNAL_3", "LKA_ACTIVE", "NEW_SIGNAL_2", "SET_X0",
+      "NEW_SIGNAL_5", "NEW_SIGNAL_6", "NEW_SIGNAL_7", "NEW_SIGNAL_1", "CHECKSUM",
+    )},
     lkas_state={name: 0 for name in (
       "NEW_SIGNAL_1", "NEW_SIGNAL_2", "NEW_SIGNAL_3", "NEW_SIGNAL_4",
       "STATE", "LKA_ACTIVE", "COUNTER", "CHECKSUM",
@@ -209,6 +207,49 @@ def decode_steering_message(message):
   parser = CANParser("chery_canfd", [("LKAS_CAM_CMD_345", 0)], 0)
   parser.update([[0, [message]]])
   return parser.vl["LKAS_CAM_CMD_345"]
+
+
+def stock_steering(raw):
+  parser = CANParser("chery_canfd", [("LKAS_CAM_CMD_345", 2)], 2)
+  parser.update([[0, [(0x345, raw, 2)]]])
+  return parser.vl["LKAS_CAM_CMD_345"].copy()
+
+
+# Real camera frames: stock lane keeping active, and one setting the bit 8 the DBC once left undefined.
+@pytest.mark.parametrize("raw", ["7a6600000000abf5", "7c1b00fee73c4a3b", "78c4000cbefe2f27"])
+def test_stock_steering_is_relayed_byte_exact_while_lateral_is_off(raw):
+  raw = bytes.fromhex(raw)
+  controller = make_controller()
+  state = make_state(0.0, 10.0)
+  state.lkas_cmd = stock_steering(raw)
+  _actuators, sends = controller.update(make_control(False, 80.0), structs.CarControlSP(), state, 0)
+  assert next(send for send in sends if send[0] == 0x345) == (0x345, raw, 0)
+
+
+def test_stock_steering_is_relayed_while_the_driver_overrides():
+  controller = make_controller()
+  control = make_control(True, 30.0)
+  raw = bytes.fromhex("7a6600000000abf5")
+  for frame in range(161):
+    state = make_state(0.0, 10.0, steering_torque=CarControllerParams.STEER_THRESHOLD + 1)
+    state.lkas_cmd = stock_steering(raw)
+    _actuators, sends = controller.update(control, structs.CarControlSP(), state, frame * 10_000_000)
+  assert controller.steer_override
+  assert any(send == (0x345, raw, 0) for send in sends)
+
+
+def test_openpilot_steering_resumes_from_the_stock_angle():
+  controller = make_controller()
+  state = make_state(0.0, 10.0)
+  state.lkas_cmd = stock_steering(bytes.fromhex("7a6600000000abf5"))
+  actuators, _sends = controller.update(make_control(False, 0.0), structs.CarControlSP(), state, 0)
+  assert actuators.steeringAngleDeg == pytest.approx(3.3)
+
+  controller.update(make_control(True, 3.3), structs.CarControlSP(), state, 10_000_000)
+  _actuators, sends = controller.update(make_control(True, 3.3), structs.CarControlSP(), state, 20_000_000)
+  values = decode_steering_message(next(send for send in sends if send[0] == 0x345))
+  assert values["LKA_ACTIVE"] == 1
+  assert values["CMD"] == round(3.3 * 10 - 392)
 
 
 def test_lateral_first_frame_outside_angle_limit_stays_inactive():

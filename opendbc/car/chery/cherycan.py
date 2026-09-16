@@ -73,6 +73,11 @@ def create_steering_control(packer, bus: int, apply_steer: float, lkas_enable: b
   return packer.make_can_msg("LKAS_CAM_CMD_345", bus, values)
 
 
+def create_stock_steering_relay(packer, bus: int, stock_values: dict):
+  """The camera's own 0x345, re-encoded byte for byte, so its lane keeping reaches the EPS while openpilot is not steering."""
+  return packer.make_can_msg("LKAS_CAM_CMD_345", bus, stock_values)
+
+
 def create_lkas_state_hud(packer, bus: int, stock_values: dict, lkas_active: bool):
   """LKAS_STATE drives the cluster's lane-keep icon.
 

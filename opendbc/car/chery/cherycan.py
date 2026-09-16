@@ -11,6 +11,10 @@ ACCEL_MAX = 2.0
 CMD_MIN = -511
 CMD_ZERO = -24
 CMD_MAX = 511
+# Positive CMD fitted against aEgo 0.4 s later on route 00000494 (7.3k openpilot-long frames, corr 0.87):
+# 0.00442 m/s^2 per CMD above CMD_ZERO. The old linear map (CMD 511 = 2.0) under-read it by ~18%,
+# so small requests overshot by 25-33%. Braking is left on the old map pending more stop data.
+ACCEL_PER_CMD_POSITIVE = 0.00442
 # Stock ACC holds the car at standstill with CMD=400 while ACCEL_ON stays 0. CMD is a magnitude
 # and ACCEL_ON is its direction, so that pair is the OEM's maximum brake request, verified over
 # 192 route segments (10 hold episodes, 423 ACC_ACTIVE=1 + STOPPED=1 frames). Reproducing it is
@@ -148,7 +152,7 @@ def create_acc_control(packer, bus: int, stock_values: dict, long_active: bool,
     if gas <= ACCEL_ZERO:
       throttle = CMD_MIN + (gas - ACCEL_MIN) * (CMD_ZERO - CMD_MIN) / (ACCEL_ZERO - ACCEL_MIN)
     else:
-      throttle = CMD_ZERO + gas * (CMD_MAX - CMD_ZERO) / ACCEL_MAX
+      throttle = min(CMD_ZERO + gas / ACCEL_PER_CMD_POSITIVE, CMD_MAX)
     throttle = int(round(throttle))
   else:
     throttle = CMD_ZERO

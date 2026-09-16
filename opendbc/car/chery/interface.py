@@ -28,7 +28,8 @@ class CarInterface(CarInterfaceBase):
     # Command to measured wheel angle lags 130ms on real routes.
     ret.steerActuatorDelay = 0.15
     ret.steerLimitTimer = 1.0
-    ret.longitudinalActuatorDelay = 0.05
+    # ACC_CMD to aEgo correlates best at a 0.4 s lag on route 00000494; 0.05 let the planner overshoot.
+    ret.longitudinalActuatorDelay = 0.4
     ret.stopAccel = CarControllerParams.ACCEL_MIN
     ret.minEnableSpeed = -1.
     ret.minSteerSpeed = -1.

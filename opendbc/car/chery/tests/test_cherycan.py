@@ -109,7 +109,7 @@ def test_acc_counter_and_checksum():
   assert dat[-1] == calculate_crc(dat[:-1])
 
 
-@pytest.mark.parametrize("gas, command", [(-3.5, -511), (0.0, -24), (2.0, 511), (-10.0, -511), (10.0, 511)])
+@pytest.mark.parametrize("gas, command", [(-3.5, -511), (0.0, -24), (1.0, 202), (2.0, 428), (-10.0, -511), (10.0, 428)])
 def test_acc_command_maps_clamped_piecewise_accel(gas, command):
   packer = CANPacker("chery_canfd")
   stock = {name: 0 for name in (
@@ -152,7 +152,7 @@ def test_acc_full_stop_holds_with_stock_command_and_inactive_preserves_stock_sta
       assert values["ACC_STATE"] == 2
       assert values["STOPPED"] == 1
     else:
-      assert values["CMD"] == 511
+      assert values["CMD"] == 428
       assert values["ACCEL_ON"] == 1
       assert values["ACC_STATE"] == 3
       assert values["STOPPED"] == 0

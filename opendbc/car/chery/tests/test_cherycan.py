@@ -109,7 +109,7 @@ def test_acc_counter_and_checksum():
   assert dat[-1] == calculate_crc(dat[:-1])
 
 
-@pytest.mark.parametrize("gas, command", [(-3.5, -511), (0.0, -24), (1.0, 202), (2.0, 428), (-10.0, -511), (10.0, 428)])
+@pytest.mark.parametrize("gas, command", [(-3.5, -511), (-2.3, -511), (-1.0, -238), (0.0, -24), (1.0, 202), (2.0, 428), (-10.0, -511), (10.0, 428)])
 def test_acc_command_maps_clamped_piecewise_accel(gas, command):
   packer = CANPacker("chery_canfd")
   stock = {name: 0 for name in (

@@ -34,12 +34,14 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     self.steer_pressed_frames = 0
     self.steer_released_frames = 0
     self.steer_override = False
+    self.eps_latched_frames = 0
+    self.eps_rearm_frames = 0
 
   def _update_steer_override(self, CS):
     """Hand steering back to the driver while they hold the wheel, and take it back once they let go.
 
-    The EPS has no torque-override path of its own here, so the only way a driver wins an
-    argument with LKAS is for openpilot to stop commanding.
+    The EPS's own override only latches it off past ~300 TORQUE_DRIVER, so below that the only
+    way a driver wins an argument with LKAS is for openpilot to stop commanding.
     """
     if abs(CS.out.steeringTorque) >= CarControllerParams.STEER_THRESHOLD:
       self.steer_pressed_frames += 1
@@ -52,6 +54,23 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
       self.steer_override = True
     elif self.steer_released_frames * DT_CTRL > CarControllerParams.STEER_OVERRIDE_TIME:
       self.steer_override = False
+
+  def _update_eps_rearm(self, CS) -> bool:
+    """Drop LKA_ACTIVE for a moment when the EPS has latched itself off under a live command.
+
+    After a hard driver push the EPS ignores LKA_ACTIVE until the bit falls and rises again, and
+    openpilot would otherwise keep showing engaged with nothing steering the car.
+    """
+    if self.eps_rearm_frames > 0:
+      self.eps_rearm_frames -= 1
+    elif self.lkas_active_last and CS.eps_inactive:
+      self.eps_latched_frames += 1
+      if self.eps_latched_frames * DT_CTRL >= CarControllerParams.EPS_LATCH_TIME:
+        self.eps_rearm_frames = int(CarControllerParams.EPS_REARM_TIME / DT_CTRL)
+        self.eps_latched_frames = 0
+    else:
+      self.eps_latched_frames = 0
+    return self.eps_rearm_frames > 0
 
   def _filter_desired_angle(self, desired_angle, CS):
     """Smooth the model's low-speed angle jitter, and hold the wheel still while the car is stopped."""
@@ -124,7 +143,8 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     can_sends = []
     actuators = CC.actuators
     self._update_steer_override(CS)
-    lat_active = (CC.latActive and not self.steer_override and
+    eps_rearming = self._update_eps_rearm(CS)
+    lat_active = (CC.latActive and not self.steer_override and not eps_rearming and
                   abs(CS.out.steeringAngleDeg) <= CarControllerParams.ANGLE_LIMITS.STEER_ANGLE_MAX)
 
     if self.frame % CarControllerParams.STEER_STEP == 0:

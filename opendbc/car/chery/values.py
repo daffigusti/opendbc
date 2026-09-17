@@ -55,8 +55,15 @@ class CarControllerParams:
   STEER_THRESHOLD = 70.
   # Driver has to hold past this before lateral drops out, and hold off it that long to get it back.
   STEER_OVERRIDE_TIME = 1.0
-  # Maximum time the EPS may report itself inactive while openpilot is steering.
-  STEER_TIMEOUT = int(30 / DT_CTRL)
+  # The EPS latches itself off when the driver pushes past ~300 TORQUE_DRIVER and only listens again
+  # after LKA_ACTIVE drops and rises (route 0000049e: 3 of 3 dropouts, 39 of 39 recoveries, back
+  # 30-40 ms after the rising edge). Engagement and one-frame blips stay under 40 ms.
+  EPS_LATCH_TIME = 0.2
+  # Shortest LKA_ACTIVE gap the route proved re-arms the EPS; nothing shorter was ever sent.
+  # ponytail: try shorter on the car, the gap is lateral the driver goes without.
+  EPS_REARM_TIME = 1.0
+  # Commanded frames the EPS may stay inactive before a steer fault is raised: ~3 failed re-arms.
+  STEER_TIMEOUT = int(0.6 / DT_CTRL)
 
   def __init__(self, CP):
     pass

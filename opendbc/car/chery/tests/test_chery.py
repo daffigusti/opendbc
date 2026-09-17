@@ -137,6 +137,7 @@ def make_state(measured_angle: float, speed: float = 1.0, front_wheel_speed: flo
     front_wheel_speed=speed if front_wheel_speed is None else front_wheel_speed,
     out=state.as_reader(),
     acc_active=acc_active,
+    eps_inactive=False,
     gap_setting=3,
     lkas_cmd={name: 0 for name in (
       "CMD", "NEW_SIGNAL_3", "LKA_ACTIVE", "NEW_SIGNAL_2", "SET_X0",
@@ -240,7 +241,7 @@ def test_stock_steering_is_relayed_while_the_driver_overrides():
 
 def test_openpilot_steering_resumes_from_the_stock_angle():
   controller = make_controller()
-  state = make_state(0.0, 10.0)
+  state = make_state(0.0, 60 / 3.6)
   state.lkas_cmd = stock_steering(bytes.fromhex("7a6600000000abf5"))
   actuators, _sends = controller.update(make_control(False, 0.0), structs.CarControlSP(), state, 0)
   assert actuators.steeringAngleDeg == pytest.approx(3.3)
@@ -1011,11 +1012,58 @@ def test_eps_fault_latches_only_after_a_sustained_dead_servo():
   state = drive_eps(car_state, parsers, packer, 1023, True, 1)
   assert state.steerFaultTemporary is True
 
-  # A live servo, or openpilot not commanding, clears the counter.
+  # A live servo clears the counter.
   state = drive_eps(car_state, parsers, packer, 5, True, 1)
   assert state.steerFaultTemporary is False
-  state = drive_eps(car_state, parsers, packer, 1023, False, timeout + 1)
+
+  # A re-arm gap (not commanding, servo still dead) holds the count instead of restarting it.
+  drive_eps(car_state, parsers, packer, 1023, True, timeout - 1)
+  state = drive_eps(car_state, parsers, packer, 1023, False, 100)
   assert state.steerFaultTemporary is False
+  state = drive_eps(car_state, parsers, packer, 1023, True, 1)
+  assert state.steerFaultTemporary is True
+
+
+def steer_with_eps(controller, eps_inactive_at, frames):
+  """Request lateral every frame; returns LKA_ACTIVE per steering frame sent."""
+  sent = {}
+  for frame in range(frames):
+    state = make_state(0.0, 20.0)
+    state.eps_inactive = eps_inactive_at(frame, sent)
+    _actuators, sends = controller.update(make_control(True, 0.0), structs.CarControlSP(), state, frame * 10_000_000)
+    for send in sends:
+      if send[0] == 0x345:
+        sent[frame] = decode_steering_message(send)["LKA_ACTIVE"]
+  return sent
+
+
+def test_latched_eps_is_rearmed_by_dropping_lka_active():
+  latch = int(CarControllerParams.EPS_LATCH_TIME / DT_CTRL)
+  rearm = int(CarControllerParams.EPS_REARM_TIME / DT_CTRL)
+
+  def eps_inactive_at(frame, sent):
+    # Latches at frame 100; like the real EPS, wakes only once LKA_ACTIVE has risen after a drop.
+    dropped = [f for f, value in sent.items() if f > 100 and value == 0]
+    return frame >= 100 and not (dropped and sent.get(frame - 4) == 1 and frame - 4 > dropped[0])
+
+  sent = steer_with_eps(make_controller(), eps_inactive_at, 100 + latch + rearm + 50)
+  dropped = [f for f, value in sent.items() if f > 100 and value == 0]
+  assert dropped and dropped[0] - 100 <= latch + 2
+  assert rearm - 2 <= dropped[-1] - dropped[0] + 2 <= rearm + 2
+  # Back to commanding after the gap, and no second drop once the EPS woke up.
+  assert all(value == 1 for f, value in sent.items() if f > dropped[-1])
+
+
+def test_brief_eps_blips_do_not_drop_lka_active():
+  # 20-30 ms blips like the ones seen while steering on route 0000049e.
+  sent = steer_with_eps(make_controller(), lambda frame, _sent: frame > 20 and frame % 50 < 3, 500)
+  assert all(value == 1 for f, value in sent.items() if f > 10)
+
+
+def test_rearm_holds_off_until_openpilot_is_commanding():
+  # Lateral just requested: the EPS still reports inactive for its ~40 ms engagement delay.
+  sent = steer_with_eps(make_controller(), lambda frame, _sent: frame < 4, 200)
+  assert all(value == 1 for f, value in sent.items() if f > 0)
 
 
 def make_long_controller():

@@ -33,6 +33,7 @@ class CarState(CarStateBase):
     self.gap_setting = 0
     self.hud_alert = {}
     self.eps_dead_frames = 0
+    self.eps_inactive = False
     self.steer_angle_hr_last = 0.0
     self.steer_rate_sign = 1
 
@@ -83,16 +84,14 @@ class CarState(CarStateBase):
 
     LKAS reporting itself inactive (EPS_TORQUE at its 1023 sentinel) while openpilot commands means the servo has gone dead.
     The loopback copy of our own 0x345 is what says openpilot is actually commanding, which is
-    the check the working fork made with CC.latActive.
+    the check the working fork made with CC.latActive. The count holds through the carcontroller's
+    re-arm gaps, where nothing is commanded, and only clears once the EPS comes back.
     """
     commanding = cp_loopback.vl["LKAS_CAM_CMD_345"]["LKA_ACTIVE"] == 1
-    if ret.cruiseState.enabled and ret.vEgo > self.CP.minSteerSpeed:
-      if commanding and cp.vl["LKAS"]["EPS_TORQUE"] == 1023 and cp.vl["LKAS"]["EPS_INACTIVE"] == 1:
-        self.eps_dead_frames += 1
-      else:
-        self.eps_dead_frames = 0
-    else:
+    if not ret.cruiseState.enabled or ret.vEgo <= self.CP.minSteerSpeed or not self.eps_inactive:
       self.eps_dead_frames = 0
+    elif commanding:
+      self.eps_dead_frames += 1
     return self.eps_dead_frames >= CarControllerParams.STEER_TIMEOUT
 
   def _steering_rate(self, steer_sensor) -> float:
@@ -177,6 +176,7 @@ class CarState(CarStateBase):
     self.lkas_state = cp_cam.vl["LKAS_STATE"].copy()
     self.hud_alert = cp_cam.vl["HUD_ALERT"].copy()
     self.acc_cmd = cp_cam.vl["ACC_CMD"].copy()
+    self.eps_inactive = cp.vl["LKAS"]["EPS_TORQUE"] == 1023 and cp.vl["LKAS"]["EPS_INACTIVE"] == 1
     ret.steerFaultTemporary = self._update_eps_fault(ret, can_parsers[Bus.loopback], cp)
     if self.CP.enableBsm:
       ret.leftBlindspot = bool(cp.vl["BSM_LEFT"]["BSM_LEFT_DETECT"])

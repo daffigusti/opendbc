@@ -379,6 +379,51 @@ def test_lateral_inactive_extreme_angle_is_not_transmitted(measured_angle):
   assert actuators.steeringAngleDeg == measured_angle
 
 
+def steer_wire_angles(controller, angles, speed, standstill=False, start_frame=0):
+  """Feed alternating desired angles at 100 Hz with the wheel at 0 and return each 0x345 angle sent."""
+  wire = []
+  for i, angle in enumerate(angles):
+    frame = start_frame + i
+    _actuators, sends = controller.update(make_control(True, angle), structs.CarControlSP(),
+                                          make_state(0.0, speed, standstill=standstill), frame * 10_000_000)
+    wire += [(decode_steering_message(send)["CMD"] + 392) / 10 for send in sends if send[0] == 0x345]
+  return wire
+
+
+def jitter(period_frames=18, amplitude=2.0, frames=400):
+  # ~2.8 Hz square-ish wobble, the rate the model's low-speed angle reverses at
+  return [amplitude if (i // (period_frames // 2)) % 2 == 0 else -amplitude for i in range(frames)]
+
+
+def test_low_speed_angle_jitter_is_smoothed():
+  wire = steer_wire_angles(make_controller(), jitter(), speed=5 / 3.6)
+  assert max(abs(angle) for angle in wire[100:]) < 1.0
+
+
+def test_angle_passes_through_unfiltered_above_30_kph():
+  wire = steer_wire_angles(make_controller(), jitter(), speed=60 / 3.6)
+  assert max(abs(angle) for angle in wire[100:]) == pytest.approx(2.0)
+
+
+def test_steady_low_speed_turn_still_reaches_the_requested_angle():
+  wire = steer_wire_angles(make_controller(), [30.0] * 300, speed=5 / 3.6)
+  assert wire[-1] == pytest.approx(30.0, abs=0.1)
+
+
+def test_wheel_is_held_while_stopped():
+  wire = steer_wire_angles(make_controller(), [20.0] * 100, speed=0.0, standstill=True)
+  assert all(angle == pytest.approx(0.0) for angle in wire)
+
+
+def test_filter_restarts_from_the_wheel_after_lateral_drops():
+  controller = make_controller()
+  steer_wire_angles(controller, [30.0] * 300, speed=5 / 3.6)
+  controller.update(make_control(False, 30.0), structs.CarControlSP(), make_state(0.0, 5 / 3.6), 300 * 10_000_000)
+  controller.update(make_control(False, 30.0), structs.CarControlSP(), make_state(0.0, 5 / 3.6), 301 * 10_000_000)
+  wire = steer_wire_angles(controller, [30.0] * 2, speed=5 / 3.6, start_frame=302)
+  assert abs(wire[0]) < 3.0
+
+
 def test_lateral_hard_cap_is_360_degrees():
   controller = make_controller()
   controller.apply_angle_last = 359.0

@@ -1,3 +1,5 @@
+import numpy as np
+
 from opendbc.can import CANPacker
 from opendbc.car import Bus, DT_CTRL, structs
 from opendbc.car.chery.cherycan import (CanBus, create_acc_control, create_button_control,
@@ -21,6 +23,7 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     self.packer = CANPacker(dbc_names[Bus.pt])
     self.VM = VehicleModel(CP)
     self.apply_angle_last = None
+    self.desired_angle_filtered = None
     self.angle_command_skipped = False
     self.lkas_active_last = False
     self.resume_counter = 0
@@ -47,6 +50,16 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
       self.steer_override = True
     elif self.steer_released_frames * DT_CTRL > CarControllerParams.STEER_OVERRIDE_TIME:
       self.steer_override = False
+
+  def _filter_desired_angle(self, desired_angle, CS):
+    """Smooth the model's low-speed angle jitter, and hold the wheel still while the car is stopped."""
+    if self.desired_angle_filtered is None:
+      self.desired_angle_filtered = CS.out.steeringAngleDeg
+    if not CS.out.standstill:
+      tau = np.interp(CS.out.vEgo, CarControllerParams.ANGLE_FILTER_SPEED_BP, CarControllerParams.ANGLE_FILTER_TAU)
+      dt = CarControllerParams.STEER_STEP * DT_CTRL
+      self.desired_angle_filtered += dt / (tau + dt) * (desired_angle - self.desired_angle_filtered)
+    return self.desired_angle_filtered
 
   def _update_cancel(self, CS, can_sends):
     """Tap the ACC button to cancel the stock ACC.
@@ -115,13 +128,16 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
       if self.apply_angle_last is None:
         self.apply_angle_last = CS.out.steeringAngleDeg
       recovering = self.angle_command_skipped and abs(CS.out.steeringAngleDeg) <= 370.4
+      if not lat_active or recovering:
+        # Restart the filter from the wheel so a new engagement carries no stale angle.
+        self.desired_angle_filtered = None
       if recovering:
         # Panda's desired-angle history must be reset by an actual inactive frame.
         apply_angle = CS.out.steeringAngleDeg
         command_active = False
       elif lat_active:
         apply_angle = apply_steer_angle_limits_vm(
-          actuators.steeringAngleDeg,
+          self._filter_desired_angle(actuators.steeringAngleDeg, CS),
           self.apply_angle_last,
           CS.front_wheel_speed,
           CS.out.steeringAngleDeg,

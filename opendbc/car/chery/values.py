@@ -22,13 +22,15 @@ class CarControllerParams:
   # STEER_ANGLE_MAX: 300 capped 90 deg turns at ~8.3 m radius; 360 reaches ~7 m. The 13-bit CMD
   # encoding tops out at 370.4. Above ~25 kph the VM lateral-accel limit binds well before this cap does. Panda must match.
   ANGLE_LIMITS = AngleSteeringLimitsVM(STEER_ANGLE_MAX=360., MAX_ANGLE_RATE=2.)
-  # Below ~20 kph the model's desired angle jitters about +/-1.7 deg, reversing ~5 times a second
-  # (route 00000494: 8x the 40-80 kph jitter), and the angle EPS reproduces it as a wobbly wheel.
-  # A first-order filter with this time constant, faded out by 30 kph, cuts that ~2.7 Hz jitter by
-  # ~75% while the slower real steering (p95 17 deg/s there) only lags by tau. A rate limit could not
-  # tell the two apart without also capping tight low-speed turns.
-  ANGLE_FILTER_SPEED_BP = [10 / 3.6, 30 / 3.6]
-  ANGLE_FILTER_TAU = [0.25, 0.]
+  # The model's desired angle jitters at low speed and the angle EPS reproduces it as a wobbly wheel.
+  # Replayed on route 0000049e (36 min lateral), jitter RMS below 20 kph is 1.22 deg raw, 0.54 with
+  # 0.25 s faded by 30 kph, and 0.37 with this; 20-30 kph goes 0.38 -> 0.23 and 30-40 kph 0.25 -> 0.19
+  # with no added error there. Fading by 50 kph instead doubled the 20-30 kph turn-in error (1.5 ->
+  # 3.6 deg p95) for little extra smoothing. Lag is tau: 0.4 s at 10 kph and below.
+  # A rate limit could not tell jitter from tight low-speed turns.
+  # ponytail: still wobbly below 20 kph -> tau 0.5; late in tight turns -> tau 0.3.
+  ANGLE_FILTER_SPEED_BP = [10 / 3.6, 40 / 3.6]
+  ANGLE_FILTER_TAU = [0.4, 0.]
   ACCEL_MIN = -3.5
   ACCEL_MAX = 2.0
   RAW_ACCEL_MIN = -511

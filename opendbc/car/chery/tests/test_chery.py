@@ -415,6 +415,13 @@ def test_wheel_is_held_while_stopped():
   assert all(angle == pytest.approx(0.0) for angle in wire)
 
 
+def test_first_engagement_starts_the_filter_from_the_wheel():
+  controller = make_controller()
+  _actuators, sends = controller.update(make_control(True, 30.0), structs.CarControlSP(), make_state(30.0, 5 / 3.6), 0)
+  values = decode_steering_message(next(send for send in sends if send[0] == 0x345))
+  assert (values["CMD"] + 392) / 10 == pytest.approx(30.0)
+
+
 def test_filter_restarts_from_the_wheel_after_lateral_drops():
   controller = make_controller()
   steer_wire_angles(controller, [30.0] * 300, speed=5 / 3.6)

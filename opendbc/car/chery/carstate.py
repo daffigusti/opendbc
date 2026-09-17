@@ -81,13 +81,13 @@ class CarState(CarStateBase):
   def _update_eps_fault(self, ret, cp_loopback, cp) -> bool:
     """Latch a temporary steer fault when the EPS stops acting on a command openpilot is sending.
 
-    LKAS.LKAS_CMD pinned at -1 while LKAS reports itself engaged means the servo has gone dead.
+    LKAS reporting itself inactive (EPS_TORQUE at its 1023 sentinel) while openpilot commands means the servo has gone dead.
     The loopback copy of our own 0x345 is what says openpilot is actually commanding, which is
     the check the working fork made with CC.latActive.
     """
     commanding = cp_loopback.vl["LKAS_CAM_CMD_345"]["LKA_ACTIVE"] == 1
     if ret.cruiseState.enabled and ret.vEgo > self.CP.minSteerSpeed:
-      if commanding and cp.vl["LKAS"]["LKAS_CMD"] == -1 and cp.vl["LKAS"]["NEW_SIGNAL_1"] == 1:
+      if commanding and cp.vl["LKAS"]["EPS_TORQUE"] == 1023 and cp.vl["LKAS"]["EPS_INACTIVE"] == 1:
         self.eps_dead_frames += 1
       else:
         self.eps_dead_frames = 0

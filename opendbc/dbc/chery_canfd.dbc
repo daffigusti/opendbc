@@ -91,15 +91,12 @@ BO_ 467 STEER_ANGLE_SENSOR: 8 XXX
  SG_ CHECKSUM : 56|8@1+ (1,0) [0|255] "" XXX
 
 BO_ 483 LKAS: 8 XXX
- SG_ NEW_SIGNAL_1 : 0|3@1+ (1,0) [0|7] "" XXX
- SG_ NEW_SIGNAL_7 : 3|5@1- (1,0) [0|31] "" XXX
- SG_ LKAS_CMD : 14|10@0- (1,0) [0|2047] "" XXX
- SG_ NEW_SIGNAL_5 : 15|1@0+ (1,0) [0|1] "" XXX
- SG_ NEW_SIGNAL_2 : 24|8@1+ (1,0) [0|255] "" XXX
- SG_ NEW_SIGNAL_3 : 32|8@1+ (1,0) [0|255] "" XXX
- SG_ NEW_SIGNAL_4 : 40|8@1+ (1,0) [0|255] "" XXX
- SG_ COUNTER : 48|8@1+ (1,0) [0|15] "" XXX
- SG_ CHECKSUM : 63|8@0+ (1,0) [0|4095] "" XXX
+ SG_ EPS_INACTIVE : 0|1@1+ (1,0) [0|1] "" XXX
+ SG_ EPS_DIR_RIGHT : 1|1@1+ (1,0) [0|1] "" XXX
+ SG_ EPS_DIR_LEFT : 2|1@1+ (1,0) [0|1] "" XXX
+ SG_ EPS_TORQUE : 15|11@0+ (1,-1024) [-1024|1023] "" XXX
+ SG_ COUNTER : 48|4@1+ (1,0) [0|15] "" XXX
+ SG_ CHECKSUM : 63|8@0+ (1,0) [0|255] "" XXX
 
 BO_ 608 NEW_MSG_260: 8 XXX
  SG_ NEW_SIGNAL_3 : 2|10@0+ (1,0) [0|1023] "" XXX
@@ -433,6 +430,10 @@ CM_ BO_ 1020 "Every bit is defined so the openpilot relay repacks the camera fra
 CM_ SG_ 1020 NEW_SIGNAL_4 "2 whenever the model sees both lane lines, ACC on or off; likely lane lines detected.";
 CM_ SG_ 1020 NEW_SIGNAL_6 "1 or 2; 2 mostly with ACC active above ~60 kph. Meaning unconfirmed.";
 CM_ SG_ 1020 NEW_SIGNAL_7 "1 or 2; 2 mostly with ACC active above ~60 kph. Reads 3 while the camera's own lane keeping steers (route 00000494 seg 15, 2 of 2 interventions) and 1 for ~2.7 s after one; likely the yellow HUD lane-line warning. Not confirmed on the cluster.";
+CM_ SG_ 483 EPS_INACTIVE "1 only while lateral is off, and EPS_TORQUE then reads 1023 (raw 0x7FF). Bits 3-7 of byte 0 read a constant 10 (route 0000049e segs 30-31, 12k frames).";
+CM_ SG_ 483 EPS_DIR_RIGHT "Set while EPS_TORQUE > ~+78, clear inside the deadband. Wheel turning right while set (mean rate -2.3 deg/s, route 00000494 seg 20).";
+CM_ SG_ 483 EPS_DIR_LEFT "Set while EPS_TORQUE < ~-80, clear inside the deadband. Wheel turning left while set (mean rate +6.4 deg/s, route 00000494 seg 20).";
+CM_ SG_ 483 EPS_TORQUE "Likely EPS motor output, sign opposite to openpilot (negative = left). corr -0.46 to the 0x345 angle command and to steering rate, -0.49 to angle error lagged 80 ms (route 0000049e segs 30-31); corr -0.63 to steering rate on route 00000494 seg 20. Unit unknown.";
 CM_ SG_ 775 NEW_SIGNAL_2 "Reads 3 while the camera's own lane keeping steers, 1 otherwise: tracks LKAS_CAM_CMD_345.LKA_ACTIVE within 30 ms (corr 0.95, route 00000494 seg 15).";
 CM_ SG_ 837 NEW_SIGNAL_2 "Undefined bit the camera sets on some frames (49 of 3000, route 00000494 seg 15); defined so the stock steering relay is byte exact.";
 CM_ SG_ 1020 NEW_SIGNAL_3 "Centred on 0 (raw 256). With both lane lines seen: corr +0.52 to lane offset, -0.40 to curvature.";

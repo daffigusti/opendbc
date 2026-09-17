@@ -55,7 +55,7 @@ class CarControllerParams:
   STEER_THRESHOLD = 70.
   # Driver has to hold past this before lateral drops out, and hold off it that long to get it back.
   STEER_OVERRIDE_TIME = 1.0
-  # Maximum time the EPS may report a dead LKAS_CMD while openpilot is steering.
+  # Maximum time the EPS may report itself inactive while openpilot is steering.
   STEER_TIMEOUT = int(30 / DT_CTRL)
 
   def __init__(self, CP):

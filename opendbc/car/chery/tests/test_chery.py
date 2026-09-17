@@ -988,12 +988,12 @@ def test_steering_pressed_uses_torque_magnitude(torque, expected):
   assert state.steeringPressed is expected
 
 
-def drive_eps(car_state, parsers, packer, lkas_cmd, commanding, frames):
+def drive_eps(car_state, parsers, packer, eps_torque, commanding, frames):
   for _ in range(frames):
     feed(parsers, packer, Bus.pt, [
       ("WHEEL_SPEED_FRNT", {"WHEEL_SPEED_FR": 40, "WHEEL_SPEED_FL": 40}),
       ("WHEEL_SPEED_REAR", {"WHEEL_SPEED_RR": 40, "WHEEL_SPEED_RL": 40}),
-      ("LKAS", {"LKAS_CMD": float(lkas_cmd), "NEW_SIGNAL_1": 1}),
+      ("LKAS", {"EPS_TORQUE": float(eps_torque), "EPS_INACTIVE": float(eps_torque == 1023)}),
     ])
     feed(parsers, packer, Bus.cam, [("ACC", {"ACC_ACTIVE": 1}), ("ACC_CMD", {"ACC_STATE": 3})])
     feed(parsers, packer, Bus.loopback, [("LKAS_CAM_CMD_345", {"LKA_ACTIVE": float(commanding)})])
@@ -1006,15 +1006,15 @@ def test_eps_fault_latches_only_after_a_sustained_dead_servo():
   car_state = CarState(cp, structs.CarParamsSP())
   timeout = CarControllerParams.STEER_TIMEOUT
 
-  state = drive_eps(car_state, parsers, packer, -1, True, timeout - 1)
+  state = drive_eps(car_state, parsers, packer, 1023, True, timeout - 1)
   assert state.steerFaultTemporary is False
-  state = drive_eps(car_state, parsers, packer, -1, True, 1)
+  state = drive_eps(car_state, parsers, packer, 1023, True, 1)
   assert state.steerFaultTemporary is True
 
   # A live servo, or openpilot not commanding, clears the counter.
   state = drive_eps(car_state, parsers, packer, 5, True, 1)
   assert state.steerFaultTemporary is False
-  state = drive_eps(car_state, parsers, packer, -1, False, timeout + 1)
+  state = drive_eps(car_state, parsers, packer, 1023, False, timeout + 1)
   assert state.steerFaultTemporary is False
 
 

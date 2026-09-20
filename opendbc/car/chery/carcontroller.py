@@ -198,7 +198,8 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
       # and ask them to take over whenever openpilot raises a steerRequired alert.
       can_sends.append(create_hud_alert(self.packer, self.CAN.main, CS.hud_alert,
                                         CC.latActive and self.steer_override,
-                                        CC.hudControl.visualAlert == VisualAlert.steerRequired))
+                                        CC.hudControl.visualAlert == VisualAlert.steerRequired,
+                                        self.lkas_active_last))
 
     if CC.cruiseControl.cancel:
       self._update_cancel(CS, can_sends)

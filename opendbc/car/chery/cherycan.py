@@ -107,17 +107,23 @@ def create_lkas_state_hud(packer, bus: int, stock_values: dict, lkas_active: boo
   return packer.make_can_msg("LKAS_STATE", bus, values)
 
 
-def create_hud_alert(packer, bus: int, stock_values: dict, takeover: bool, steer_required: bool):
+def create_hud_alert(packer, bus: int, stock_values: dict, takeover: bool, steer_required: bool, lkas_active: bool = False):
   """HUD_ALERT drives the cluster's driver-assist warnings.
 
   ICA_WARNING=6 is the take-over message for a driver steer override, and STEER_WARNING=1 is the
   "take over and steer carefully" request. Stock 0x3FC is blocked from forwarding, so this relays
   the camera's frame and only raises those warnings on top of it.
+
+  STEER_WARNING is also the camera's hands-on nag: with stock LKA switched on it asks for driver
+  torque openpilot's own driver monitoring already covers, so while openpilot steers the bit is
+  owned by openpilot and the camera's copy is dropped.
   """
   values = dict(stock_values)
   if takeover:
     values["ICA_WARNING"] = ICA_WARNING_TAKEOVER
-  if steer_required:
+  if lkas_active:
+    values["STEER_WARNING"] = 1 if steer_required else 0
+  elif steer_required:
     values["STEER_WARNING"] = 1
   if values == stock_values:
     return packer.make_can_msg("HUD_ALERT", bus, stock_values)

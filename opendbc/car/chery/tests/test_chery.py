@@ -792,10 +792,21 @@ def test_steer_required_alert_raises_steer_warning():
   assert values["ICA_WARNING"] == 0
   assert alert[1][-1] == calculate_crc(alert[1][:-1])
 
-  # Other alerts leave the camera's own warning untouched, including one it raised itself.
+  # While openpilot steers, the camera's own hands-on nag is dropped: openpilot's driver
+  # monitoring covers driver attention, and stock LKA nags for wheel torque it never gets.
   state = make_state(0.0, 10.0)
   state.hud_alert.update({"STEER_WARNING": 1, "CHECKSUM": 0x42})
   control = make_control(True, 0.0, visual_alert=VisualAlert.fcw)
+  _actuators, sends = make_controller().update(control, structs.CarControlSP(), state, 0)
+  alert = next(send for send in sends if send[0] == 0x3FC)
+  values = decode_hud_alert(alert)
+  assert values["STEER_WARNING"] == 0
+  assert alert[1][-1] == calculate_crc(alert[1][:-1])
+
+  # With openpilot's lateral off the camera owns lane keeping, so its warning is relayed verbatim.
+  state = make_state(0.0, 10.0)
+  state.hud_alert.update({"STEER_WARNING": 1, "CHECKSUM": 0x42})
+  control = make_control(False, 0.0, visual_alert=VisualAlert.fcw)
   _actuators, sends = make_controller().update(control, structs.CarControlSP(), state, 0)
   values = decode_hud_alert(next(send for send in sends if send[0] == 0x3FC))
   assert values["STEER_WARNING"] == 1

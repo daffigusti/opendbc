@@ -36,8 +36,9 @@ class IntelligentCruiseButtonManagementInterface(IntelligentCruiseButtonManageme
     if self.frame % CarControllerParams.BUTTONS_STEP != 0:
       return can_sends
 
-    # ponytail: fixed tap cadence shared with resume, unmeasured while moving. Tune from a route
-    # with driver +/- taps at ACC_ACTIVE 1 if presses are dropped or overshoot.
+    # One frame per tap, shared with resume: the camera counts every injected frame as its own
+    # press, so the old 4-frame tap asked for four steps where one was meant. Driver taps at
+    # ACC_ACTIVE 1 measure +1 kph under ~150ms and auto-repeat past ~200ms; see values.py.
     if self.button_frame % CarControllerParams.RESUME_TAP_PERIOD < CarControllerParams.RESUME_TAP_FRAMES:
       increase = self.ICBM.sendButton == SendButtonState.increase
       can_sends.append(create_button_control(packer, CAN.camera, CS.buttons_stock_values,

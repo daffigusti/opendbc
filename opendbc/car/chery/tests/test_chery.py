@@ -873,8 +873,9 @@ def test_resume_taps_res_plus_instead_of_holding_it():
       parser.update([[0, [message]]])
       pressed.append(parser.vl["STEER_BUTTON"]["RES_PLUS"])
 
-  # 140 frames is 28 button slots: two full 14-slot cycles of 4 taps each.
-  assert len(pressed) == 8
+  # 140 frames is 28 button slots: two full 14-slot cycles of one frame each. More than one frame
+  # per cycle reads as more than one press at the camera and raises the set speed on resume.
+  assert len(pressed) == 2
   assert all(pressed)
 
 
@@ -1215,8 +1216,9 @@ def test_icbm_taps_set_speed_buttons_while_acc_active(send_button, expected):
     _actuators, sends = controller.update(make_resume_control(False), make_icbm_control(send_button), state, frame * 10_000_000)
     messages += [send for send in sends if send[0] == 0x360]
   assert all(bus == 2 for _addr, _data, bus in messages)
-  # Same tap cadence as resume: 4 frames on per 14-frame cycle, two cycles.
-  assert decode_buttons(messages) == [expected] * 8
+  # Same tap cadence as resume: one frame per 14-frame cycle, two cycles. Each frame the camera
+  # sees is one press, so a wider tap would step the set speed once per frame.
+  assert decode_buttons(messages) == [expected] * 2
 
 
 def test_icbm_sends_nothing_without_an_active_acc():
@@ -1287,7 +1289,8 @@ def test_cancel_taps_acc_button_while_active_and_beats_icbm():
     _actuators, sends = controller.update(make_cancel_control(), make_icbm_control(increase), state, frame * 10_000_000)
     messages += button_frames(sends)
   assert all(bus == 2 for _addr, _data, bus in messages)
-  assert decode_cancel(messages) == [(1, 0, 0)] * 8
+  # One frame per cycle, and cancel still owns the frame ICBM wanted.
+  assert decode_cancel(messages) == [(1, 0, 0)] * 2
 
 
 def test_cancel_sends_nothing_once_acc_is_off():

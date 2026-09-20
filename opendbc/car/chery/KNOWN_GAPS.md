@@ -21,11 +21,23 @@ Future evidence required:
 - `0x360` TX carries `RES_PLUS` (resume from a stopped hold, or +set speed) and
   `RES_MINUS` (-set speed), camera bus only, with controls authorized and no cancel,
   main or gap bit. `RES_MINUS` requires `ACC_ACTIVE`, since at 0 it is SET and
-  engages the ACC; `RES_PLUS` requires `ACC_ACTIVE` or a stopped car. ICBM and resume
-  share one tap cadence (4 frames on, 10 off, at 20Hz) taken from the driver's
-  measured resume presses. No route yet has driver +/- taps with the ACC active, so
-  kph per tap, auto-repeat on a held press, and whether the camera accepts spoofed
-  presses while moving are all unconfirmed.
+  engages the ACC; `RES_PLUS` requires `ACC_ACTIVE` or a stopped car. ICBM, resume and
+  cancel share one tap cadence, now one frame per 700ms. It used to be 4 frames, which
+  the button counting punishes the same way it punished the gap button: the panda keeps
+  forwarding the wheel's own zeroed frame between openpilot's, so the camera reads each
+  injected frame as its own press. Two-frame resume taps raised the set speed +1 kph on
+  3 of the 4 holds exited on route 000004ae (segs 17, 19, 22; seg 18 did not), the first
+  frame resuming and the second landing as a raise -- a 4-frame ICBM tap would have asked
+  for four steps where one was meant. One frame is enough: a single-frame RES+ brought
+  `ACC_ACTIVE` back in 66 ms and a single-frame cancel dropped it in 7 ms, and a missed
+  frame simply retries on the next 700 ms cycle.
+- Driver presses measure the other half of that button, from 20 presses over routes
+  000004ad and 000004ae with the ACC active: a press under ~150 ms steps the set speed by
+  1 kph, and past ~200 ms it auto-repeats, reaching +16 kph in 1.4 s and rounding onto
+  multiples of 5 on the way. Those are held presses on the wheel's own frames, which is
+  why they read as one press and openpilot's spaced frames do not. Whether an injected
+  press auto-repeats if held across frames is still untested -- nothing openpilot sends
+  holds the bit that long any more.
 - Driver torque override is enforced at `abs(TORQUE_DRIVER) > 70` with one second
   of hysteresis either way. `TORQUE_DRIVER`'s sign is still unverified, so only its
   magnitude is used, and the threshold itself needs owner-labeled stationary

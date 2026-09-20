@@ -46,9 +46,15 @@ class CarControllerParams:
   RAW_ACCEL_MAX = 511
   RAW_ACCEL_INACTIVE = -24
 
-  # RES+ doubles as "raise set speed": held while ACC_ACTIVE is 1 it adds +1..+14 kph, while the
-  # 0.19-0.24s taps the driver makes at ACC_ACTIVE 0 only resume. Tap it the way the driver does.
-  RESUME_TAP_FRAMES = 4   # 4 button frames at 20Hz = 200ms
+  # RES+ doubles as "raise set speed": a driver press under ~150ms adds +1 kph, and past ~200ms it
+  # auto-repeats, reaching +16 kph in 1.4s. openpilot's frames do not read as one held press: the
+  # panda keeps forwarding the wheel's own zeroed frame in between, so the camera sees each
+  # injected frame as a separate press, the same counting that made the gap button double-step.
+  # Two-frame resume taps proved it, raising the set speed +1 kph on 3 of 4 holds exited (routes
+  # 000004ae segs 17/19/22) -- the first frame resumed and the second landed as a raise. One frame
+  # is enough on its own: a single-frame RES+ brought ACC_ACTIVE back in 66ms (seg 18) and a
+  # single-frame cancel dropped it in 7ms (route 000004ad seg 5).
+  RESUME_TAP_FRAMES = 1   # one button frame per tap, as the gap button already sends
   RESUME_TAP_PERIOD = 14  # 700ms cycle, leaving a clear gap between taps
   # Cancel reuses this cadence. STEER_BUTTON.ACC toggles the ACC, cancelling while active and engaging
   # while not; on a real route ACC_ACTIVE dropped 0.1-0.25s after a press, well inside one cycle, so a

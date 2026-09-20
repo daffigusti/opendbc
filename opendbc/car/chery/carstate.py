@@ -20,7 +20,7 @@ def battery_soc_from_fw(car_fw) -> float:
   cluster displays (read 88.45 against a dash showing 88).
   """
   for fw in car_fw:
-    if bytes(fw.request) == BMS_SOC_REQUEST and len(fw.fwVersion) >= 6:
+    if any(bytes(request) == BMS_SOC_REQUEST for request in fw.request) and len(fw.fwVersion) >= 6:
       return int.from_bytes(fw.fwVersion[4:6], 'big') / 10000.
   return 0.
 

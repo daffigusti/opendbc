@@ -1334,17 +1334,29 @@ def test_steer_sensor_matches_route_frame():
   assert parser.vl["STEER_SENSOR"]["COUNTER"] == 0xc
 
 
+def battery_fw(request, fw_version):
+  # Built as the real struct, not a stand-in: carFw.request is a List(Data), and a stand-in that
+  # got that shape wrong is what let a crash reach the car.
+  return structs.CarParams.CarFw(request=[request], fwVersion=fw_version)
+
+
 def test_battery_soc_from_fw():
   # Response captured from the car's BMS at 0x7E5 with the dash showing 88%, with the 62 441E
   # header already stripped by the iso-tp query.
-  soc_fw = SimpleNamespace(request=BMS_SOC_REQUEST, fwVersion=bytes.fromhex("22e9227e228d224e0101020202"))
-  soh_fw = SimpleNamespace(request=BMS_SOH_REQUEST, fwVersion=bytes.fromhex("005c"))
+  soc_fw = battery_fw(BMS_SOC_REQUEST, bytes.fromhex("22e9227e228d224e0101020202"))
+  soh_fw = battery_fw(BMS_SOH_REQUEST, bytes.fromhex("005c"))
   assert battery_soc_from_fw([soh_fw, soc_fw]) == pytest.approx(0.8845)
 
   # A car that never answered, and a truncated response, both have to stay at zero rather than
   # report a bogus charge.
   assert battery_soc_from_fw([soh_fw]) == 0.
-  assert battery_soc_from_fw([SimpleNamespace(request=BMS_SOC_REQUEST, fwVersion=b"\x22\xe9")]) == 0.
+  assert battery_soc_from_fw([battery_fw(BMS_SOC_REQUEST, b"\x22\xe9")]) == 0.
+
+  # The whole CarState has to build from a CarParams carrying these entries, which is the path
+  # that crashed card on the car. get_car assigns carFw after get_params, so do the same here.
+  CP = CarInterface.get_params(CAR.CHERY_OMODA_E5, fingerprint(), [], alpha_long=False, is_release=False, docs=False)
+  CP.carFw = [soh_fw, soc_fw]
+  assert CarState(CP, structs.CarParamsSP()).fuel_gauge == pytest.approx(0.8845)
 
 
 def test_bms_requests_only_run_with_obd_multiplexing():

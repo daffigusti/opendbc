@@ -51,11 +51,19 @@ Future evidence required:
   confirmed it stays 1 for the whole press, and `ACC.GAS_PRESSED` (`0x3A5`) rises with
   it. With the ACC off no pedal signal exists, so the throttle threshold stands in;
   openpilot is not engaged longitudinally then.
-- The ACC command to acceleration map is fitted, not measured on a labelled sweep, but it
-  has now been checked against 40 min of openpilot longitudinal on route 0000049e: the car
-  delivers 0.97-1.04 of the requested acceleration for CMD from -400 to -100, and 0.89 below
-  -400 (230 frames). The deepest braking ever seen is -2.81 m/s^2, at CMD -511, so the scale's
-  deep end wants a labelled deceleration sweep.
+- The ACC command to acceleration map is fitted, not measured on a labelled sweep, but it holds
+  up against 100 min of openpilot longitudinal across routes 0000049e, 000004ad and 000004ae. At
+  the 0.4 s actuator delay the car delivers 0.98 of the request overall (corr 0.93, and 0.4-0.6 s
+  is the best lag of those tried), and braking runs 0.97-1.04 of the request for CMD -400 to -100.
+  The positive scale measures 0.00439 m/s^2 per count against the 0.00442 in use, from the 35
+  commands held 1.5 s or longer.
+- Both ends past those bounds are unmeasured rather than wrong. No command above CMD 62 is ever
+  held for 1.5 s in those 100 min -- every larger request is a ramp shorter than the response lag,
+  so the apparent 0.78-0.86 shortfall above CMD 150 is acceleration that had not arrived yet, not
+  a scale error, and refitting on it would over-command. Braking deeper than CMD -400 gives 0.89
+  over 230 frames, including one 3.1 s episode at CMD -511 that asked -2.70 and got -2.26; that
+  one outlasts the lag, so the deep brake end may be real saturation. Settling either end needs a
+  labelled sweep: hold a request at a step for several seconds on flat ground.
 - `stopAccel` is -2.5, the floor longcontrol ramps the request down to while stopping at
   1 m/s^2 per second. It was `ACCEL_MIN`, -3.5, which 1 of 8 stops on route 000004ae bottomed out
   against (the car gave -1.33 there) while the other 7 stayed shallower than -1.5; the car has

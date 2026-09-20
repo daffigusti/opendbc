@@ -81,6 +81,10 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
       self.angle_filter.update_alpha(float(np.interp(CS.out.vEgo, CarControllerParams.ANGLE_FILTER_SPEED_BP,
                                                      CarControllerParams.ANGLE_FILTER_TAU)))
       self.angle_filter.update(desired_angle)
+      # The jitter this smooths is a couple of degrees; a hairpin runs the model hundreds of degrees
+      # in a few seconds, and the filter alone would trail it by tens. Cap how far behind it may sit.
+      lag = CarControllerParams.ANGLE_FILTER_MAX_LAG
+      self.angle_filter.x = float(np.clip(self.angle_filter.x, desired_angle - lag, desired_angle + lag))
     return self.angle_filter.x
 
   def _update_cancel(self, CS, can_sends):

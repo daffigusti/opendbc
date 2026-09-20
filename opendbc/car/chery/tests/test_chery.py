@@ -406,6 +406,16 @@ def test_angle_passes_through_unfiltered_above_30_kph():
   assert max(abs(angle) for angle in wire[100:]) == pytest.approx(2.0)
 
 
+def test_filter_lag_is_capped_through_a_hairpin():
+  # 80 deg/s ramp at 22 kph, under the 100 deg/s rate limit, so only the filter can hold it back.
+  ramp = [min(i * 0.8, 160.0) for i in range(300)]
+  wire = steer_wire_angles(make_controller(), ramp, speed=22 / 3.6)
+  lag = [abs(want - got) for want, got in zip(ramp[1::2], wire[1:])]
+  # Uncapped, tau trails an 80 deg/s ramp by 23 deg here. The literal bound is the point of the test.
+  assert max(lag) <= 8.0
+  assert max(lag) <= CarControllerParams.ANGLE_FILTER_MAX_LAG + 2
+
+
 def test_steady_low_speed_turn_still_reaches_the_requested_angle():
   wire = steer_wire_angles(make_controller(), [30.0] * 300, speed=5 / 3.6)
   assert wire[-1] == pytest.approx(30.0, abs=0.1)

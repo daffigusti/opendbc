@@ -30,10 +30,16 @@ class CarControllerParams:
   # for the 0.25 s faded by 30 kph this replaced. 0.4 was driven and read as calm but late in tight
   # turns. Neither a median prefilter (an oscillation is not a spike: 1.20 RMS) nor letting a large
   # angle error through unfiltered (jitter is that large: 0.67 RMS) separates the two.
-  # Lag is tau, so 0.3 s at 10 kph and below.
-  # ponytail: still wobbly below 20 kph -> tau 0.35; still late in tight turns -> tau 0.2.
+  # Lag is tau below 10 kph, but bounded by ANGLE_FILTER_MAX_LAG wherever the model outruns it.
+  # ponytail: still wobbly below 20 kph -> tau 0.6; still late in tight turns -> max lag 5.
   ANGLE_FILTER_SPEED_BP = [10 / 3.6, 40 / 3.6]
-  ANGLE_FILTER_TAU = [0.3, 0.]
+  ANGLE_FILTER_TAU = [0.5, 0.]
+  # Route 000004ad seg 10 turned a hairpin at 22 kph: the model swung 165 deg in 3.5 s and unwound
+  # at ~130 deg/s, which tau alone trailed by 29 deg p95 and read to openpilot as the car failing to
+  # turn (steerSaturated, "Turn Exceeds Steering Limit"). Capping the lag at 6 deg -- twice the
+  # jitter this filter exists to remove -- holds it to 7.7 deg p95 there while low-speed jitter stays
+  # where tau 0.4 put it (0.37 deg RMS on route 0000049e) and tight-turn peaks improve on it.
+  ANGLE_FILTER_MAX_LAG = 6.
   ACCEL_MIN = -3.5
   ACCEL_MAX = 2.0
   RAW_ACCEL_MIN = -511

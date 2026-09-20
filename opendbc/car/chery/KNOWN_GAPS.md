@@ -7,18 +7,16 @@
   seats other than the driver's, are unconfirmed.
 - FCW is `ACC.AEB_ACTIVE == 1` with `SETTING.AEB_ACTIVE` not at 3, the warning separated
   from the braking: route 488 raised it for a dash collision warning with AEB switched off,
-  and route 1b6 braked with `SETTING.AEB_ACTIVE=3`. `SETTING.SHOW_AEB` is the driver's AEB
-  setting, not a warning. Neither bit has fired since: 8 segments of routes 0000049e and
-  000004ad hold zero frames of either, so the mapping rests on those two events alone.
+  and route 1b6 braked with `SETTING.AEB_ACTIVE=3` (owner-provided capture; `SETTING.SHOW_AEB`
+  pulsed with both events there, so it may be the cluster's popup rather than the driver's AEB
+  setting it is currently read as). Neither bit has fired since: 8 segments of routes 0000049e
+  and 000004ad hold zero frames of either, so the mapping rests on those two events.
 
 Future evidence required:
 
-- Catch an FCW and an AEB event again to confirm the two bits on more than one route each.
-- Capture EPS fault and watchdog inputs before claiming steer-fault handling.
+- Catch an FCW and an AEB event again to confirm the two bits on more than one route each,
+  and to settle what `SHOW_AEB` tracks.
 - Physical steer ratio and rack range require owner-labeled measurements.
-- Raw ACC command to physical acceleration mapping requires owner-labeled
-  measurements.
-- Stock AEB interaction requires hardware validation.
 - Stage C3, Panda bench, and controlled-drive validation before expanding support.
 - `0x360` TX carries `RES_PLUS` (resume from a stopped hold, or +set speed) and
   `RES_MINUS` (-set speed), camera bus only, with controls authorized and no cancel,
@@ -47,10 +45,18 @@ Future evidence required:
   confirmed it stays 1 for the whole press, and `ACC.GAS_PRESSED` (`0x3A5`) rises with
   it. With the ACC off no pedal signal exists, so the throttle threshold stands in;
   openpilot is not engaged longitudinally then.
+- The ACC command to acceleration map is fitted, not measured on a labelled sweep, but it
+  has now been checked against 40 min of openpilot longitudinal on route 0000049e: the car
+  delivers 0.97-1.04 of the requested acceleration for CMD from -400 to -100, and 0.89 below
+  -400 (230 frames). `ACCEL_MIN` is -3.5 while the deepest braking ever seen is -2.81 m/s^2 at
+  CMD -511, so the planner assumes braking the car cannot deliver. Both the deep-end scale and
+  `ACCEL_MIN` want a labelled deceleration sweep.
 - `ACC_CMD` full-stop uses the stock hold encoding (`CMD=400`, `ACCEL_ON=0`,
   `STOPPED=1`, `ACC_STATE=2`), derived from 10 hold episodes across 192 route
-  segments. Panda permits it only while the car is already stopped. Not yet
-  confirmed on-vehicle.
+  segments. Panda permits it only while the car is already stopped. Driven on routes
+  0000049e and 000004ae (the latter 29 min of congestion): 260 s of hold, longest 78.7 s,
+  every frame of every hold below 0.1 kph, so the encoding never went out while rolling.
+  Launches out of a hold reach 0.85-1.27 m/s^2.
 - `LKAS_STATE` (`0x307`) is now transmitted by openpilot and the stock copy is
   blocked from forwarding once RX health is trusted. Cluster behaviour with the
   substituted frame is unverified.
@@ -59,12 +65,20 @@ Future evidence required:
   take-over warning; otherwise the camera's frame goes out verbatim. Byte 7 is CRC-8 over
   bytes 0-6, checked on one frame. openpilot's `steerRequired` visual alert (steer fault,
   steer saturated, driver monitoring) sets `STEER_WARNING=1`, which the owner identified as the
-  cluster's "take over and steer carefully" warning; the camera's own bit is kept. Cluster behaviour with the substituted frame is unverified.
+  cluster's "take over and steer carefully" warning; the camera's own bit is kept. The owner
+  reported the camera's hands-on nag stops with the substituted frame; what the cluster renders
+  for each bit is otherwise unverified.
 - `steerRatio` 17 is fitted from locationd yaw rate against measured wheel angle
   on one 8-minute urban route (r=0.98, 16.8-17.2 across 11-32 kph); it has not been
   checked above 32 kph. `steerActuatorDelay` 0.15 follows the 130ms command-to-angle
   lag measured on the same route. Panda's `steer_ratio` must be changed with them or
   the VM angle limits diverge from the controller's.
+- The low-speed angle filter trades wheel wobble against turn-in and openpilot cannot see the
+  trade: `latcontrol_angle` measures saturation as the model's angle against the wheel, not
+  against what this carcontroller sent, so the filter's own lag reads as the car failing to
+  turn. On route 000004ad seg 10, a hairpin at 22 kph raised "Turn Exceeds Steering Limit" with
+  69% of the error being filter lag. `ANGLE_FILTER_MAX_LAG` bounds that; whether the alert still
+  fires through such a turn is unconfirmed on the car.
 - A driver accelerator override is reported by the stock ACC as `ACC_STATE=1` and
   `SETTING.ACC_AVAILABLE=3` with `ACC_ACTIVE` still 1. Both are treated as an
   available ACC only while `ACC_ACTIVE` is 1 (and, in Panda, the pedal bit is set),
@@ -84,9 +98,17 @@ Future evidence required:
   Panda allows it without controls and while braking, but not on untrusted RX. The
   cancel response time (0.1-0.25s) comes from driver presses; host presses are
   unconfirmed.
-- The driver's labelled captures place EPS-fault candidates in `0x40F` byte 0
-  (`0xD5` at both logged steer failures) and EPB/auto hold/HDC in `0x537`,
-  `0x51D` and `0x502`. None is parsed yet.
+- Stock AEB is decoded and inhibited, not validated on the road: `SETTING.AEB_ACTIVE == 3`
+  drops `controls_allowed` and rejects every host `ACC_CMD`, restoring OEM forwarding. No
+  AEB event has happened with openpilot longitudinal engaged, so the handover is untested
+  outside the safety tests.
+- The EPS reports itself on `LKAS` (`0x1E3`): `EPS_INACTIVE`, a direction pair, and an
+  11-bit output (see the DBC comments). A hard driver push past ~300 `TORQUE_DRIVER` latches
+  the EPS off until `LKA_ACTIVE` falls and rises again, so the carcontroller re-arms it and
+  `steerFaultTemporary` follows the same signal. Both come from route logs (3 dropouts,
+  39 recoveries); neither has been exercised on the car. The EPS-fault candidates the driver
+  captured in `0x40F` byte 0 (`0xD5` at both logged steer failures), and EPB/auto hold/HDC in
+  `0x537`, `0x51D` and `0x502`, are still unparsed.
 
 Publication rule: publish owner-provided evidence only after owner approval, and
 strip route IDs, URLs, tokens, VINs, locations, timestamps, and raw identifying

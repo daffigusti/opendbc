@@ -61,6 +61,15 @@ class CarControllerParams:
   # ponytail: levels 1-4 still mapped by eye; refit from LEAD_FRONT distance / vEgo on a route that uses them.
   GAP_FOR_DISTANCE_BARS = {1: 2, 2: 3, 3: 4}  # aggressive, standard, relaxed
 
+  # Every STEER_BUTTON frame openpilot injects is its own press: the panda keeps forwarding the
+  # wheel's frame (buttons 0) between them, so the camera sees a rising edge per injected frame.
+  # Route 000004ae ran the 4-frame resume cadence here, the cluster stepped GAP once per frame, and
+  # the 10Hz SETTING.GAP readback -- still stale when the next frame went out -- kept flipping the
+  # direction: GAP ping-ponged 1<->3 for 7s off a single driver tap. One frame per press, and wait
+  # for the readback before deciding again.
+  GAP_TAP_PERIOD = 14  # 700ms between presses; SETTING.GAP settled within ~250ms on that route
+  GAP_MAX_TAPS = 6     # 1..5 is 4 levels at most, so stop hunting rather than press forever
+
   # STEER_SENSOR_2.TORQUE_DRIVER is 0.24 units; 70 is the threshold the working fork ran with.
   # Unverified against a labelled stationary sweep -- see KNOWN_GAPS.md.
   STEER_THRESHOLD = 70.

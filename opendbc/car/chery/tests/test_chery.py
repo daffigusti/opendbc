@@ -1093,7 +1093,15 @@ def make_long_controller():
   return CarController(DBC[CAR.CHERY_OMODA_E5], cp, structs.CarParamsSP())
 
 
-def gap_taps(controller, bars, gap_setting, long_active=True, acc_active=True, frames=140):
+def gap_tap_frames(controller, bars, gap_setting, frames=140, start_frame=0, **kwargs):
+  """Frame numbers, relative to start_frame, on which a gap press went out."""
+  sent = []
+  gap_taps(controller, bars, gap_setting, frames=frames, start_frame=start_frame, sent_frames=sent, **kwargs)
+  return sent
+
+
+def gap_taps(controller, bars, gap_setting, long_active=True, acc_active=True, frames=140,
+             start_frame=0, sent_frames=None):
   control = structs.CarControl()
   control.longActive = long_active
   control.hudControl.leadDistanceBars = bars
@@ -1107,10 +1115,13 @@ def gap_taps(controller, bars, gap_setting, long_active=True, acc_active=True, f
   parser = CANParser("chery_canfd", [("STEER_BUTTON", 2)], 2)
   taps = []
   for frame in range(frames):
-    _actuators, sends = controller.update(control.as_reader(), structs.CarControlSP(), state, frame * 10_000_000)
+    _actuators, sends = controller.update(control.as_reader(), structs.CarControlSP(), state,
+                                          (start_frame + frame) * 10_000_000)
     for send in button_frames(sends):
       parser.update([[0, [send]]])
       taps.append((parser.vl["STEER_BUTTON"]["GAP_ADJUST_UP"], parser.vl["STEER_BUTTON"]["GAP_ADJUST_DOWN"]))
+      if sent_frames is not None:
+        sent_frames.append(frame)
   return taps
 
 
@@ -1120,7 +1131,21 @@ def gap_taps(controller, bars, gap_setting, long_active=True, acc_active=True, f
   (2, 5, (0, 1)),
 ])
 def test_gap_taps_toward_personality_target(bars, gap_setting, expected):
-  assert gap_taps(make_long_controller(), bars, gap_setting) == [expected] * 8
+  # One frame per press, 700ms apart: the camera reads every injected frame as its own press.
+  assert gap_taps(make_long_controller(), bars, gap_setting) == [expected] * 2
+
+
+def test_gap_taps_are_single_frames_spaced_for_the_readback():
+  frames = gap_tap_frames(make_long_controller(), 3, 3, frames=1400)
+  assert frames == [0, 70, 140, 210, 280, 350]  # 700ms apart, and no seventh press
+
+
+def test_gap_taps_stop_until_the_target_moves():
+  controller = make_long_controller()
+  assert len(gap_tap_frames(controller, 3, 3, frames=1400)) == CarControllerParams.GAP_MAX_TAPS
+  # A new personality is a new attempt; the same one is not.
+  assert gap_tap_frames(controller, 3, 3, frames=200, start_frame=1400) == []
+  assert gap_tap_frames(controller, 1, 3, frames=200, start_frame=1600) != []
 
 
 @pytest.mark.parametrize("kwargs", [

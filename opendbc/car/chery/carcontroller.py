@@ -31,6 +31,8 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     self.resume_counter = 0
     self.cancel_counter = 0
     self.gap_counter = 0
+    self.gap_taps = 0
+    self.gap_target = None
     self.steer_pressed_frames = 0
     self.steer_released_frames = 0
     self.steer_override = False
@@ -128,19 +130,34 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     """Tap the stock gap button until the cluster's following distance matches the personality.
 
     Only openpilot's longitudinal uses the personality, so this runs only while it is in control.
-    Tapping rather than holding keeps each press to one level, read back from SETTING.GAP.
+    One frame per press, spaced so the 10Hz SETTING.GAP readback settles before the next direction
+    is picked: the camera counts every injected frame as a press, so the old 4-frame tap moved the
+    cluster four levels and then chased its own overshoot.
     """
     target = CarControllerParams.GAP_FOR_DISTANCE_BARS.get(CC.hudControl.leadDistanceBars)
-    if (not self.CP.openpilotLongitudinalControl or not CC.longActive or not CS.acc_active or
-        target is None or CS.gap_setting == target or any(send[0] == 0x360 for send in can_sends)):
+    if target != self.gap_target:
+      self.gap_target = target
       self.gap_counter = 0
+      self.gap_taps = 0
+    if (not self.CP.openpilotLongitudinalControl or not CC.longActive or not CS.acc_active or
+        target is None or CS.gap_setting == target):
+      self.gap_counter = 0
+      self.gap_taps = 0
       return
     if self.frame % CarControllerParams.BUTTONS_STEP != 0:
       return
-    if self.gap_counter % CarControllerParams.RESUME_TAP_PERIOD < CarControllerParams.RESUME_TAP_FRAMES:
+    if any(send[0] == 0x360 for send in can_sends):
+      # Another button owns this frame; restart the wait rather than stack two presses.
+      self.gap_counter = 0
+      return
+    if self.gap_taps >= CarControllerParams.GAP_MAX_TAPS:
+      # The cluster is not following; stop until the personality changes or the driver moves it.
+      return
+    if self.gap_counter % CarControllerParams.GAP_TAP_PERIOD == 0:
       farther = CS.gap_setting < target
       can_sends.append(create_button_control(self.packer, self.CAN.camera, CS.buttons_stock_values,
                                              gap_up=farther, gap_down=not farther))
+      self.gap_taps += 1
     self.gap_counter += 1
 
   def update(self, CC, CC_SP, CS, now_nanos):

@@ -51,11 +51,15 @@ static void chery_pcm_cruise_check(void) {
 }
 
 static void chery_update_gas(void) {
-  // ENGINE_DATA.GAS is a drivetrain torque request, not pedal travel: across 943k moving frames
-  // its distribution under ACC and under the driver is indistinguishable (38.8% vs 51.9% at
-  // zero, both saturating above 26000), so no threshold on it separates the two. Reading it as
-  // a driver press denied controls in 98%+ of ACC-engaged frames while protecting against
-  // nothing. Only the camera's own driver-pedal bit is trusted. See KNOWN_GAPS.md.
+  // ENGINE_DATA.GAS is the throttle the powertrain executes, not pedal travel: across 943k
+  // moving frames its distribution under ACC and under the driver is indistinguishable (38.8%
+  // vs 51.9% at zero), so no threshold on it separates the two. Reading it as a driver press
+  // denied controls in 98%+ of ACC-engaged frames while protecting against nothing. The pedal
+  // itself is the neighbouring byte, now ENGINE_DATA.GAS_PEDAL -- that earlier scan saw the two
+  // merged into one 16-bit field, which is where the saturation above 26000 came from. It
+  // tracks the camera bit on 96.8% of ACC-engaged frames but also reports light touches the
+  // camera rejects, so safety still trusts only the camera's own driver-pedal bit. See
+  // KNOWN_GAPS.md.
   gas_pressed = chery_acc_gas;
 }
 

@@ -80,9 +80,12 @@ Future evidence required:
   cluster's "take over and steer carefully" warning; the camera's own bit is kept. The owner
   reported the camera's hands-on nag stops with the substituted frame; what the cluster renders
   for each bit is otherwise unverified.
-- `steerRatio` 17 is fitted from locationd yaw rate against measured wheel angle
-  on one 8-minute urban route (r=0.98, 16.8-17.2 across 11-32 kph); it has not been
-  checked above 32 kph. `steerActuatorDelay` 0.15 follows the 130ms command-to-angle
+- `steerRatio` 17 is fitted from locationd yaw rate against measured wheel angle, first on one
+  8-minute urban route (r=0.98, 16.8-17.2 across 11-32 kph) and since over 44 min of calibrated
+  yaw on route 0000049e up to 100 kph: swept through the vehicle model, 17 has the lowest angle
+  error overall (1.71 deg RMS) and 17-18 is the optimum in every band that carries real curvature.
+  Above 50 kph the route holds almost no curvature (p95 0.001 1/m), so that range picks no ratio at
+  all rather than confirming one. `steerActuatorDelay` 0.15 follows the 130ms command-to-angle
   lag measured on the same route. Panda's `steer_ratio` must be changed with them or
   the VM angle limits diverge from the controller's.
 - The low-speed angle filter trades wheel wobble against turn-in and openpilot cannot see the
@@ -95,6 +98,14 @@ Future evidence required:
   `SETTING.ACC_AVAILABLE=3` with `ACC_ACTIVE` still 1. Both are treated as an
   available ACC only while `ACC_ACTIVE` is 1 (and, in Panda, the pedal bit is set),
   so lateral survives the override. Seen on three presses in one route.
+- `LEAD_FRONT` (`0x3ED`) is parsed but deliberately not published as a radar point, so
+  `radarUnavailable` stays true. Against the model's lead over 5 min of route 000004ae it tracks
+  the same object (distance corr 0.95, mean offset +1.5 m) but is the weaker source: valid on 29%
+  of frames against the model's 34%, distance quantised to 1 m with no velocity field, and
+  `LEAD_LATERAL` signed opposite to openpilot. Relative speed cannot be recovered from it -- an
+  alpha-beta filter over the 20 Hz distance correlates 0.03-0.17 with the model's vRel at 4-8 m/s
+  RMS for every gain tried. Wiring it would feed radard a coarse, slower, velocity-less track in
+  place of a better one.
 - MADS is partial support, as on Tesla and Rivian. There is no ACC main switch, and
   `ACC_STATE`/`ACC_AVAILABLE` drop on 98% of brake-pressed frames, so no stable main
   signal exists; Panda leaves `acc_main_on` false. MADS lateral engages with the ACC,

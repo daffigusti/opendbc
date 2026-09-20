@@ -5,12 +5,15 @@
   reads 1 when unlatched (in park before buckling and after exit) and 0 for the
   whole drive. Which door each bit maps to, and whether the belt signal covers
   seats other than the driver's, are unconfirmed.
-- FCW state unavailable. No confirmed FCW signal exists in route parser set;
-  `SETTING.SHOW_AEB` is not treated as FCW. `stockFcw` intentionally stays false.
+- FCW is `ACC.AEB_ACTIVE == 1` with `SETTING.AEB_ACTIVE` not at 3, the warning separated
+  from the braking: route 488 raised it for a dash collision warning with AEB switched off,
+  and route 1b6 braked with `SETTING.AEB_ACTIVE=3`. `SETTING.SHOW_AEB` is the driver's AEB
+  setting, not a warning. Neither bit has fired since: 8 segments of routes 0000049e and
+  000004ad hold zero frames of either, so the mapping rests on those two events alone.
 
 Future evidence required:
 
-- Capture FCW behavior separately from AEB and confirm route signal mapping.
+- Catch an FCW and an AEB event again to confirm the two bits on more than one route each.
 - Capture EPS fault and watchdog inputs before claiming steer-fault handling.
 - Physical steer ratio and rack range require owner-labeled measurements.
 - Raw ACC command to physical acceleration mapping requires owner-labeled

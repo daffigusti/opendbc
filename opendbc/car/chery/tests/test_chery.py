@@ -8,10 +8,11 @@ from opendbc.car import structs
 from opendbc.can import CANPacker, CANParser
 from opendbc.car.chery.cherycan import CanBus, calculate_crc, create_hud_alert
 from opendbc.car.chery.carcontroller import CarController
-from opendbc.car.chery.carstate import CarState
+from opendbc.car.chery.carstate import battery_soc_from_fw, CarState
 from opendbc.car.chery.fingerprints import FINGERPRINTS, FW_VERSIONS
 from opendbc.car.chery.interface import CarInterface
-from opendbc.car.chery.values import CAR, CarControllerParams, CherySafetyFlags, DBC
+from opendbc.car.chery.values import (BMS_SOC_REQUEST, BMS_SOH_REQUEST, CAR, CarControllerParams,
+                                      CherySafetyFlags, DBC, FW_QUERY_CONFIG)
 from opendbc.car.fingerprints import _FINGERPRINTS
 from opendbc.car.structs import CarParams
 from opendbc.car.values import PLATFORMS
@@ -1331,3 +1332,27 @@ def test_steer_sensor_matches_route_frame():
   assert parser.vl["STEER_SENSOR"]["STEER_ANGLE_HR"] == pytest.approx((0x87cb - 0x8000) * 0.0625)
   assert parser.vl["STEER_SENSOR"]["STEER_RATE"] == pytest.approx(4)
   assert parser.vl["STEER_SENSOR"]["COUNTER"] == 0xc
+
+
+def test_battery_soc_from_fw():
+  # Response captured from the car's BMS at 0x7E5 with the dash showing 88%, with the 62 441E
+  # header already stripped by the iso-tp query.
+  soc_fw = SimpleNamespace(request=BMS_SOC_REQUEST, fwVersion=bytes.fromhex("22e9227e228d224e0101020202"))
+  soh_fw = SimpleNamespace(request=BMS_SOH_REQUEST, fwVersion=bytes.fromhex("005c"))
+  assert battery_soc_from_fw([soh_fw, soc_fw]) == pytest.approx(0.8845)
+
+  # A car that never answered, and a truncated response, both have to stay at zero rather than
+  # report a bogus charge.
+  assert battery_soc_from_fw([soh_fw]) == 0.
+  assert battery_soc_from_fw([SimpleNamespace(request=BMS_SOC_REQUEST, fwVersion=b"\x22\xe9")]) == 0.
+
+
+def test_bms_requests_only_run_with_obd_multiplexing():
+  bms = [r for r in FW_QUERY_CONFIG.requests if r.request[0] in (BMS_SOC_REQUEST, BMS_SOH_REQUEST)]
+  assert len(bms) == 2
+  for request in bms:
+    # The BMS only answers over the OBD-II port, and fw_versions only toggles multiplexing for
+    # bus 1. These are battery state, so they must never reach fingerprinting.
+    assert request.bus == 1
+    assert request.obd_multiplexing
+    assert request.logging

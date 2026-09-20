@@ -122,14 +122,41 @@ class CAR(Platforms):
   )
 
 
+# The BMS answers only on the OBD-II port, which the panda can mux onto bus 1 while no car safety
+# mode is loaded -- the fingerprinting window is the one chance to read it. Both responses are
+# logged rather than fingerprinted on: they carry battery state, not a firmware version.
+BMS_ADDR = 0x7E5
+BMS_SOC_REQUEST = b'\x22\x44\x1e'
+BMS_SOC_RESPONSE = b'\x62\x44\x1e'
+BMS_SOH_REQUEST = b'\x22\x10\x48'
+BMS_SOH_RESPONSE = b'\x62\x10\x48'
+
 FW_QUERY_CONFIG = FwQueryConfig(
   requests=[
     Request(
       [StdQueries.MANUFACTURER_SOFTWARE_VERSION_REQUEST],
       [StdQueries.MANUFACTURER_SOFTWARE_VERSION_RESPONSE],
+      whitelist_ecus=[Ecu.engine],
       bus=0,
-    )
+    ),
+    Request(
+      [BMS_SOC_REQUEST],
+      [BMS_SOC_RESPONSE],
+      whitelist_ecus=[Ecu.hybrid],
+      bus=1,
+      obd_multiplexing=True,
+      logging=True,
+    ),
+    Request(
+      [BMS_SOH_REQUEST],
+      [BMS_SOH_RESPONSE],
+      whitelist_ecus=[Ecu.hybrid],
+      bus=1,
+      obd_multiplexing=True,
+      logging=True,
+    ),
   ],
+  extra_ecus=[(Ecu.hybrid, BMS_ADDR, None)],
   # The three shapes seen on the E5 engine ECU so far: plain version, masked, and UDS-prefixed part number
   fw_version_regex=br"(?:\d{2}\.\d{2}\.\d{2}|\?{10}|\xf1\x87[0-9A-Z]{11} {5}\xf1\x82\?{10})",
 )

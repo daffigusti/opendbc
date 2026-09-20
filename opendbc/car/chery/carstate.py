@@ -2,12 +2,27 @@ from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.chery.cherycan import CanBus
-from opendbc.car.chery.values import CarControllerParams, DBC
+from opendbc.car.chery.values import BMS_SOC_REQUEST, CarControllerParams, DBC
 from opendbc.car.interfaces import CarStateBase
 
 
 # ENGINE_DATA.GAS_PEDAL is the driver's own pedal, so the band only has to clear sensor rest.
 GAS_PRESSED_THRESHOLD = 1
+
+
+def battery_soc_from_fw(car_fw) -> float:
+  """State of charge as [0.0, 1.0], from the boot-time BMS query, or 0 if it did not answer.
+
+  The BMS is reachable only over the OBD-II port, and the panda drops that multiplexing the moment
+  a car safety mode loads, so this is a snapshot taken during fingerprinting rather than a live
+  signal. Charge moves about a percent a minute at worst, so a drive-long constant is close enough
+  to be worth more than nothing. 0x441E carries four flavours of SoC; the third is the one the
+  cluster displays (read 88.45 against a dash showing 88).
+  """
+  for fw in car_fw:
+    if bytes(fw.request) == BMS_SOC_REQUEST and len(fw.fwVersion) >= 6:
+      return int.from_bytes(fw.fwVersion[4:6], 'big') / 10000.
+  return 0.
 
 
 class CarState(CarStateBase):
@@ -34,6 +49,7 @@ class CarState(CarStateBase):
     self.eps_inactive = False
     self.steer_angle_hr_last = 0.0
     self.steer_rate_sign = 1
+    self.fuel_gauge = battery_soc_from_fw(CP.carFw)
 
   @staticmethod
   def get_can_parsers(CP, CP_SP):
@@ -186,6 +202,7 @@ class CarState(CarStateBase):
     # and 0 for the whole drive.
     ret.doorOpen = any(cp.vl["BCM_SIGNAL_1"][door] for door in ("FL_DOOR_OPEN", "FR_DOOR_OPEN", "RL_DOOR_OPEN", "RR_DOOR_OPEN"))
     ret.seatbeltUnlatched = cp.vl["NEW_MSG_430"]["SEATBELT"] == 1
+    ret.fuelGauge = self.fuel_gauge
     self.buttons_stock_values = cp.vl["STEER_BUTTON"].copy()
     ret.buttonEvents = self._button_events(cp.vl["STEER_BUTTON"])
     return ret, ret_sp

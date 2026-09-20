@@ -30,7 +30,10 @@ class CarInterface(CarInterfaceBase):
     ret.steerLimitTimer = 1.0
     # ACC_CMD to aEgo correlates best at a 0.4 s lag on route 00000494; 0.05 let the planner overshoot.
     ret.longitudinalActuatorDelay = 0.4
-    ret.stopAccel = CarControllerParams.ACCEL_MIN
+    # Floor longcontrol ramps the request down to while stopping. The car has never braked past
+    # -2.81 m/s^2 (CMD saturated at -511), and at ACCEL_MIN 1 of 8 stops on route 000004ae bottomed
+    # out asking for -3.5 and got -1.33. This still stops harder than openpilot's -2.0 default.
+    ret.stopAccel = -2.5
     ret.minEnableSpeed = -1.
     ret.minSteerSpeed = -1.
     ret.autoResumeSng = True

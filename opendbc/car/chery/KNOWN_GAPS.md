@@ -56,13 +56,13 @@ Future evidence required:
   delivers 0.97-1.04 of the requested acceleration for CMD from -400 to -100, and 0.89 below
   -400 (230 frames). The deepest braking ever seen is -2.81 m/s^2, at CMD -511, so the scale's
   deep end wants a labelled deceleration sweep.
-- `stopAccel` is `ACCEL_MIN`, -3.5, against an openpilot default of -2.0 and a car that has never
-  braked past -2.81. It is the floor longcontrol ramps the request down to while stopping, at
-  1 m/s^2 per second, so a slow stop bottoms out asking for braking the car cannot give. Route
-  000004ae: 1 of 8 stops reached the full -3.5 (the car gave -1.33 there), the other 7 stayed
-  shallower than -1.5, so the floor is reached rarely rather than every stop. openpilot's planner
-  is not affected -- it clips to the global `ACCEL_MIN` in `opendbc.car.interfaces`, which is also
-  -3.5 for every car -- and the command clamp is moot because CMD saturates at -511 first.
+- `stopAccel` is -2.5, the floor longcontrol ramps the request down to while stopping at
+  1 m/s^2 per second. It was `ACCEL_MIN`, -3.5, which 1 of 8 stops on route 000004ae bottomed out
+  against (the car gave -1.33 there) while the other 7 stayed shallower than -1.5; the car has
+  never braked past -2.81. -2.5 is unmeasured as a stopping floor, and whether stops now feel
+  softer at the end is unconfirmed on the car. openpilot's planner never reads either number --
+  it clips to the global `ACCEL_MIN` in `opendbc.car.interfaces`, -3.5 for every car -- and
+  `ACCEL_MIN`'s command clamp is moot because CMD saturates at -511 first.
 - `ACC_CMD` full-stop uses the stock hold encoding (`CMD=400`, `ACCEL_ON=0`,
   `STOPPED=1`, `ACC_STATE=2`), derived from 10 hold episodes across 192 route
   segments. Panda permits it only while the car is already stopped. Driven on routes

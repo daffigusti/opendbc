@@ -34,7 +34,13 @@ Future evidence required:
   `SETTING.GAP` is the stock following distance, 1..5 with 5 the farthest, and `GAP_ADJUST_UP`
   moves it farther (owner-identified). With openpilot longitudinal and the ACC active, `0x360`
   gap taps bring it to 2/3/4 for aggressive/standard/relaxed. The mapping is by eye, not measured
-  time gap, and whether the camera accepts spoofed gap presses while moving is unconfirmed.
+  time gap. The camera does accept spoofed gap presses while moving -- and counts *every* injected
+  `0x360` frame as a separate press, because the panda keeps forwarding the wheel's own frame
+  (buttons 0) in between. Route `000004ae` ran a 4-frame tap here: one driver gap press stepped the
+  cluster twice, then openpilot chased its own overshoot off the 10Hz `SETTING.GAP` readback and
+  ping-ponged GAP between 1 and 3 for ~7s. Gap presses are now one frame each, 700ms apart, capped
+  at `GAP_MAX_TAPS`. The same per-frame counting probably applies to the RES+/RES- taps that ICBM
+  and resume use; unmeasured, and set speed did not obviously over-step on that route.
 - `ENGINE_DATA.GAS` is not a driver-pedal signal and is no longer read as one.
   Across 943k moving frames its distribution under ACC and under the driver is
   indistinguishable (38.8% vs 51.9% at zero, both saturating above 26000), so no
@@ -48,9 +54,15 @@ Future evidence required:
 - The ACC command to acceleration map is fitted, not measured on a labelled sweep, but it
   has now been checked against 40 min of openpilot longitudinal on route 0000049e: the car
   delivers 0.97-1.04 of the requested acceleration for CMD from -400 to -100, and 0.89 below
-  -400 (230 frames). `ACCEL_MIN` is -3.5 while the deepest braking ever seen is -2.81 m/s^2 at
-  CMD -511, so the planner assumes braking the car cannot deliver. Both the deep-end scale and
-  `ACCEL_MIN` want a labelled deceleration sweep.
+  -400 (230 frames). The deepest braking ever seen is -2.81 m/s^2, at CMD -511, so the scale's
+  deep end wants a labelled deceleration sweep.
+- `stopAccel` is `ACCEL_MIN`, -3.5, against an openpilot default of -2.0 and a car that has never
+  braked past -2.81. It is the floor longcontrol ramps the request down to while stopping, at
+  1 m/s^2 per second, so a slow stop bottoms out asking for braking the car cannot give. Route
+  000004ae: 1 of 8 stops reached the full -3.5 (the car gave -1.33 there), the other 7 stayed
+  shallower than -1.5, so the floor is reached rarely rather than every stop. openpilot's planner
+  is not affected -- it clips to the global `ACCEL_MIN` in `opendbc.car.interfaces`, which is also
+  -3.5 for every car -- and the command clamp is moot because CMD saturates at -511 first.
 - `ACC_CMD` full-stop uses the stock hold encoding (`CMD=400`, `ACCEL_ON=0`,
   `STOPPED=1`, `ACC_STATE=2`), derived from 10 hold episodes across 192 route
   segments. Panda permits it only while the car is already stopped. Driven on routes

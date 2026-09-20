@@ -43,14 +43,16 @@ Future evidence required:
   and resume use; unmeasured, and set speed did not obviously over-step on that route.
 - `ENGINE_DATA.GAS` is not a driver-pedal signal and is no longer read as one.
   Across 943k moving frames its distribution under ACC and under the driver is
-  indistinguishable (38.8% vs 51.9% at zero, both saturating above 26000), so no
-  threshold separates them; reading it as a press denied controls in 98%+ of
-  ACC-engaged frames while protecting against nothing. `gas_pressed` now comes only
-  from the camera's `ACC_CMD.GAS_PRESSED` bit while `ACC_ACTIVE` is 1. Its low duty
-  cycle (under 1% of frames) is rare overrides, not a dropped signal: the owner
-  confirmed it stays 1 for the whole press, and `ACC.GAS_PRESSED` (`0x3A5`) rises with
-  it. With the ACC off no pedal signal exists, so the throttle threshold stands in;
-  openpilot is not engaged longitudinally then.
+  indistinguishable (38.8% vs 51.9% at zero), so no threshold separates them; reading
+  it as a press denied controls in 98%+ of ACC-engaged frames while protecting against
+  nothing. That scan also read the field 16 bits wide, before the driver's own pedal
+  byte was split out as `GAS_PEDAL` -- which is where its saturation above 26000 came
+  from -- so it measured the executed throttle with the pedal tacked onto its low end.
+  Panda `gas_pressed` still comes only from the camera's `ACC_CMD.GAS_PRESSED` bit
+  while `ACC_ACTIVE` is 1. Its low duty cycle (under 1% of frames) is rare overrides,
+  not a dropped signal: the owner confirmed it stays 1 for the whole press, and
+  `ACC.GAS_PRESSED` (`0x3A5`) rises with it. With the ACC off, CarState reads
+  `GAS_PEDAL`; see the entry below for what that byte is and how it was verified.
 - The ACC command to acceleration map is fitted, not measured on a labelled sweep, but it holds
   up against 100 min of openpilot longitudinal across routes 0000049e, 000004ad and 000004ae. At
   the 0.4 s actuator delay the car delivers 0.98 of the request overall (corr 0.93, and 0.4-0.6 s

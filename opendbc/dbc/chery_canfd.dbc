@@ -46,16 +46,15 @@ BO_ 62 ENGINE_DATA: 48 XXX
  SG_ ENGINE_DATA_CHECKSUM_1 : 64|8@1+ (1,0) [0|255] "" XXX
  SG_ ENGINE_DATA_COUNTER_1 : 72|4@1+ (1,0) [0|15] "" XXX
  SG_ GAS_POS : 85|14@0+ (1,-600) [0|127] "" XXX
- SG_ NEW_SIGNAL_7 : 102|15@0+ (1,0) [0|32767] "" XXX
- SG_ NEW_SIGNAL_9 : 103|1@0+ (1,0) [0|1] "" XXX
- SG_ NEW_SIGNAL_6 : 118|15@0+ (1,0) [0|32767] "" XXX
- SG_ NEW_SIGNAL_13 : 119|1@0+ (1,0) [0|1] "" XXX
+ SG_ SPEED : 103|16@0+ (0.014184,-425.52) [-425.52|504] "kmh" XXX
+ SG_ NEW_SIGNAL_6 : 119|16@0+ (1,-32768) [-32768|32767] "" XXX
  SG_ ENGINE_DATA_CHECKSUM_2 : 128|8@1+ (1,0) [0|255] "" XXX
  SG_ ENGINE_DATA_COUNTER_2 : 136|4@1+ (1,0) [0|15] "" XXX
- SG_ NEW_SIGNAL_15 : 151|16@0+ (1,0) [0|65535] "" XXX
+ SG_ NEW_SIGNAL_15 : 151|16@0+ (1,-32768) [-32768|32767] "" XXX
  SG_ NEW_SIGNAL_11 : 166|7@0+ (1,0) [0|127] "" XXX
  SG_ NEW_SIGNAL_12 : 174|7@0+ (1,0) [0|127] "" XXX
- SG_ GAS : 183|16@0+ (0.1,0) [0|32767] "" XXX
+ SG_ GAS : 183|8@0+ (1,0) [0|255] "" XXX
+ SG_ GAS_PEDAL : 191|8@0+ (1,0) [0|255] "" XXX
  SG_ ENGINE_DATA_CHECKSUM_3 : 192|8@1+ (1,0) [0|255] "" XXX
  SG_ ENGINE_DATA_COUNTER_3 : 200|4@1+ (1,0) [0|15] "" XXX
  SG_ GEAR : 208|3@1+ (1,0) [0|63] "" XXX
@@ -67,7 +66,7 @@ BO_ 62 ENGINE_DATA: 48 XXX
  SG_ NEW_SIGNAL_3 : 245|1@0+ (1,0) [0|1] "" XXX
  SG_ ENGINE_DATA_CHECKSUM_4 : 256|8@1+ (1,0) [0|255] "" XXX
  SG_ ENGINE_DATA_COUNTER_4 : 264|4@1+ (1,0) [0|15] "" XXX
- SG_ NEW_SIGNAL_14 : 278|15@0+ (1,0) [0|32767] "" XXX
+ SG_ NEW_SIGNAL_14 : 279|16@0+ (1,-32768) [-32768|32767] "" XXX
 
 BO_ 196 STEER_SENSOR: 8 XXX
  SG_ STEER_ANGLE_HR : 7|16@0+ (0.0625,-2048) [-2048|2047.9375] "deg" XXX
@@ -445,6 +444,17 @@ CM_ SG_ 1005 LEAD_CLASS "Matched on video: 1 car, 2 truck, 3 motorcycle. 4 and 5
 CM_ SG_ 1005 LEAD_LATERAL "Positive left. Scale fit loosely (corr 0.73 against the model lead).";
 CM_ BO_ 1018 "Adjacent-lane objects from the front camera, same slot layout as LEAD_FRONT. On 21 segments the first slot sat left in 98% of frames (median +2.6 m), the second right in 97% (median -3.1 m).";
 CM_ SG_ 1005 LEAD_DISTANCE_2 "Same layout as the first slot; seen holding an 18 m car while a motorcycle took the first slot.";
+CM_ BO_ 62 "Powertrain status. 48 bytes as six 8-byte blocks, each with its own checksum (byte 0) and 4-bit counter (low nibble of byte 1); bytes 40-47 are always zero.";
+CM_ SG_ 62 SPEED "Signed speed, raw offset 30000: standstill mean 29999.0 (sd 7) over 16.8k stopped frames, negative through reverse (29847 at 2.1 kph backwards), route 000004ac segs 0-3. 70.5 counts per kph, fit against signed carState.vEgo R2 0.9991. Native unit is probably motor rpm through the ~9.2:1 reduction.";
+CM_ SG_ 62 GAS "Throttle the powertrain is executing, not pedal travel. Ran up to 60 through a whole stock-ACC segment while the driver never touched the pedal (route 0000049e segs 20-23).";
+CM_ SG_ 62 GAS_PEDAL "Driver accelerator pedal. Exactly 0 on all 5999 frames of that same ACC-driven segment, where the camera ACC_CMD.GAS_PRESSED also read 0 and GAS did not; rises with every gas press of a manual drive (route 000004ac segs 0-3). A driver override while ACC is engaged has not been captured yet, so the camera bit still owns gasPressed in that case.";
+CM_ SG_ 62 ACCEL "Longitudinal acceleration. Against wheel-speed derived acceleration on a highway segment: 0.00157 m/s2 per count, R2 0.98, leading by 40 ms. Scale left at 1 because the fit drifts at low speed where road grade enters.";
+CM_ SG_ 62 NEW_SIGNAL_6 "Offset binary about 32768. Zero at standstill and throughout reverse, negative while moving forward, updates at 5 Hz. Torque-like, unconfirmed.";
+CM_ SG_ 62 NEW_SIGNAL_15 "Offset binary about 32768, never positive. Zero on 97% of town-driving frames but corr +0.96 to acceleration on a highway segment, and corr +1.00 to NEW_MSG_260.NEW_SIGNAL_1. Braking or regen torque, unit unknown.";
+CM_ SG_ 62 NEW_SIGNAL_14 "Offset binary about 32768, small negatives (-61 to -1 on route 000004ac segs 0-3), constant on the highway segment.";
+CM_ SG_ 62 GEAR "P=1, R=2, D=4 all observed on route 000004ac segs 0-3; N never selected.";
+CM_ SG_ 62 CC_STATE "Always 0, including a full segment with the stock ACC engaged (route 0000049e segs 20-23). Cruise state comes from the camera ACC/ACC_CMD frames; the name is historical.";
+CM_ SG_ 62 CRUIZE_SPEED "Always 0, including with the stock ACC engaged. Set speed comes from SETTING.CC_SPEED.";
 VAL_ 62 GEAR 1 "P" 2 "R" 3 "N" 4 "D";
 VAL_ 1005 LEAD_CLASS 1 "CAR" 2 "TRUCK" 3 "MOTORCYCLE";
 VAL_ 1005 LEAD_CLASS_2 1 "CAR" 2 "TRUCK" 3 "MOTORCYCLE";

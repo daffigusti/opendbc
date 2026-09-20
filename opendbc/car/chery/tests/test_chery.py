@@ -481,7 +481,7 @@ def test_chery_state_update_decodes_route_signals():
       ("STEER_ANGLE_SENSOR", {"STEER_ANGLE": -12.3, "TORQUE": -7}),
       ("STEER_SENSOR_2", {"TORQUE_DRIVER": -24}),
       ("BRAKE_DATA", {"BRAKE_POS": 25}),
-      ("ENGINE_DATA", {"GAS": 4, "BRAKE_PRESS": 1, "GEAR": 4}),
+      ("ENGINE_DATA", {"GAS": 4, "GAS_PEDAL": 4, "BRAKE_PRESS": 1, "GEAR": 4}),
       ("STEER_BUTTON", {"ACC": 1, "RES_PLUS": 1}),
     ],
     Bus.cam: [
@@ -641,24 +641,50 @@ def test_brake_state_uses_engine_switch_and_preserves_brake_position(brake_pos, 
   assert car_state.brake_pos == brake_pos
 
 
-@pytest.mark.parametrize("active, acc_gas, engine_gas, expected", [
-  # While the ACC owns the throttle, ENGINE_DATA.GAS is openpilot's own request echoed back, so
-  # only the camera's driver-pedal bit counts. With the ACC off, the raw throttle has to clear
-  # the echo band before it reads as a press.
-  (1, 1, 0, True), (1, 0, 100, False), (1, 0, 3000, False), (1, 0, 0, False),
-  (0, 1, 0, False), (0, 0, 400, True), (0, 0, 300, False), (0, 0, 2, False),
+@pytest.mark.parametrize("active, acc_gas, engine_gas, pedal, expected", [
+  # While the ACC owns the throttle, only the camera's driver-pedal bit counts: ENGINE_DATA.GAS
+  # is openpilot's own request echoed back, and GAS_PEDAL also reports light touches the camera
+  # rejects. With the ACC off, the pedal byte decides and the executed throttle is ignored.
+  (1, 1, 0, 0, True), (1, 0, 100, 0, False), (1, 0, 60, 0, False), (1, 0, 0, 0, False),
+  (0, 1, 0, 0, False), (0, 0, 60, 40, True), (0, 0, 60, 0, False), (0, 0, 0, 2, True),
+  (0, 0, 0, 1, False),
 ])
-def test_gas_source_by_acc_active(active, acc_gas, engine_gas, expected):
+def test_gas_source_by_acc_active(active, acc_gas, engine_gas, pedal, expected):
   cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
   parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
   packer = CANPacker("chery_canfd")
-  pt_addr, pt_data, pt_bus = packer.make_can_msg("ENGINE_DATA", parsers[Bus.pt].bus, {"GAS": float(engine_gas)})
+  pt_addr, pt_data, pt_bus = packer.make_can_msg("ENGINE_DATA", parsers[Bus.pt].bus,
+                                                 {"GAS": float(engine_gas), "GAS_PEDAL": float(pedal)})
   acc_addr, acc_data, acc_bus = packer.make_can_msg("ACC", parsers[Bus.cam].bus, {"ACC_ACTIVE": float(active)})
   cmd_addr, cmd_data, cmd_bus = packer.make_can_msg("ACC_CMD", parsers[Bus.cam].bus, {"GAS_PRESSED": float(acc_gas)})
   parsers[Bus.pt].update([[0, [(pt_addr, pt_data, pt_bus)]]])
   parsers[Bus.cam].update([[0, [(acc_addr, acc_data, acc_bus), (cmd_addr, cmd_data, cmd_bus)]]])
   state, _ = CarState(cp, structs.CarParamsSP()).update(parsers)
   assert state.gasPressed is expected
+
+
+@pytest.mark.parametrize("speed_kph", [0.0, -5.0, 30.0, 80.0])
+def test_engine_data_speed_is_signed_around_its_offset(speed_kph):
+  # Raw 30000 is standstill and reverse reads below it, so the signal only survives a boundary
+  # change if the offset stays put: a 15-bit read or a lost sign bit breaks the round trip.
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
+  packer = CANPacker("chery_canfd")
+  address, data, bus = packer.make_can_msg("ENGINE_DATA", parsers[Bus.pt].bus, {"SPEED": speed_kph})
+  parsers[Bus.pt].update([[0, [(address, data, bus)]]])
+  assert parsers[Bus.pt].vl["ENGINE_DATA"]["SPEED"] == pytest.approx(speed_kph, abs=0.02)
+
+
+def test_engine_data_throttle_bytes_are_independent():
+  # GAS (executed throttle) and GAS_PEDAL (driver pedal) share neighbouring bytes; a 16-bit read
+  # of either one swallows the other, which is what the old GAS definition did.
+  cp = CarInterface.get_non_essential_params(CAR.CHERY_OMODA_E5)
+  parsers = CarState.get_can_parsers(cp, structs.CarParamsSP())
+  packer = CANPacker("chery_canfd")
+  address, data, bus = packer.make_can_msg("ENGINE_DATA", parsers[Bus.pt].bus, {"GAS": 60, "GAS_PEDAL": 0})
+  parsers[Bus.pt].update([[0, [(address, data, bus)]]])
+  assert parsers[Bus.pt].vl["ENGINE_DATA"]["GAS"] == 60
+  assert parsers[Bus.pt].vl["ENGINE_DATA"]["GAS_PEDAL"] == 0
 
 
 def test_buttons_emit_only_verified_resume_edges():

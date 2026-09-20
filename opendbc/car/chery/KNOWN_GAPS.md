@@ -102,6 +102,36 @@ Future evidence required:
   turn. On route 000004ad seg 10, a hairpin at 22 kph raised "Turn Exceeds Steering Limit" with
   69% of the error being filter lag. `ANGLE_FILTER_MAX_LAG` bounds that; whether the alert still
   fires through such a turn is unconfirmed on the car.
+- `ENGINE_DATA` (`0x3E`) carries two throttle bytes, not one 16-bit value. `GAS` (byte 22) is
+  the throttle the powertrain executes; `GAS_PEDAL` (byte 23) is the driver's pedal. Through
+  route 0000049e segs 20-23 the stock ACC drove the whole way: `GAS` ran to 60 while `GAS_PEDAL`
+  read exactly 0 on all 5999 frames, matching the camera's own `ACC_CMD.GAS_PRESSED`. The old
+  16-bit `GAS` merged the two, which is why it looked like a torque request with no usable
+  driver threshold (see the comment in `safety/modes/chery.h`). CarState now reads `GAS_PEDAL`
+  with the ACC off. Overrides with the ACC engaged were then found on routes 000004ad and
+  000004ae (18 episodes, 2936 flagged frames over 21.8k ACC-on frames): `GAS_PEDAL` rises with
+  every one of them, missing only 0.22% of camera-flagged frames and leading the camera bit by
+  50 ms, while the executed `GAS` agrees on just 67%. It is not used while the ACC is engaged
+  because it also reports three light touches (peaks 2, 6 and 7 of a 59 range, 0.15-2.0 s) that
+  the camera does not count as an override, so the camera bit still decides there. Panda
+  likewise still trusts only the camera bit.
+- `ENGINE_DATA.SPEED` (bits 103|16, previously `NEW_SIGNAL_7` plus a stray `NEW_SIGNAL_9` bit)
+  is signed speed around a raw offset of 30000: standstill mean 29999.0 (sd 7) over 16.8k
+  stopped frames and 29847 at 2.1 kph in reverse, route 000004ac segs 0-3. Fit against signed
+  `carState.vEgo` gives R2 0.9991 at 70.5 counts per kph; decoding the patched DBC over the same
+  route leaves a mean error of -0.01 kph (sd 0.13), and -0.22 kph on a 53 kph highway segment,
+  which is within the wheel-speed scale's own uncertainty. Not used for `vEgo` -- the wheel
+  speeds remain the source -- but it is the only signed speed in the powertrain bus.
+- `ENGINE_DATA.CC_STATE` and `ENGINE_DATA.CRUIZE_SPEED` are dead: both read 0 through a full
+  segment with the stock ACC engaged and a set speed on the cluster. Cruise state and set speed
+  come from the camera's `ACC`/`ACC_CMD`/`SETTING` frames.
+- Still undecoded in `ENGINE_DATA` after a route covering park, reverse, drive, standstill and
+  braking: bytes 6, 7, 20, 21, 28, 30, 31, 34, 36-39 never change at all, and bytes 40-47 are
+  always zero. Three offset-binary fields around 32768 (`NEW_SIGNAL_6`, `NEW_SIGNAL_15`,
+  `NEW_SIGNAL_14`) behave like braking or regen torque -- `NEW_SIGNAL_15` correlates +0.96 with
+  acceleration on a highway segment and +1.00 with `NEW_MSG_260.NEW_SIGNAL_1` -- but nothing in
+  the logs separates which torque each one is. Identifying them needs a reference the car does
+  not broadcast, not more driving.
 - A driver accelerator override is reported by the stock ACC as `ACC_STATE=1` and
   `SETTING.ACC_AVAILABLE=3` with `ACC_ACTIVE` still 1. Both are treated as an
   available ACC only while `ACC_ACTIVE` is 1 (and, in Panda, the pedal bit is set),

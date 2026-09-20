@@ -6,10 +6,8 @@ from opendbc.car.chery.values import CarControllerParams, DBC
 from opendbc.car.interfaces import CarStateBase
 
 
-# Sits above the throttle openpilot's own hold request echoes back through ENGINE_DATA.GAS,
-# which ramps in 25.6 steps to at most 205 while the pedal reads untouched. Real driver presses
-# in the same logs measured 486..2442.
-GAS_PRESSED_THRESHOLD = 300
+# ENGINE_DATA.GAS_PEDAL is the driver's own pedal, so the band only has to clear sensor rest.
+GAS_PRESSED_THRESHOLD = 1
 
 
 class CarState(CarStateBase):
@@ -122,14 +120,16 @@ class CarState(CarStateBase):
     ret.wheelSpeeds.rl, ret.wheelSpeeds.rr = rl, rr
     self.parse_wheel_speeds(ret, fl, fr, rl, rr, unit=1.0)
     ret.standstill = ret.vEgoRaw < 1e-3
-    # ENGINE_DATA.GAS is the throttle the powertrain is executing, not pedal travel. During an
-    # ACC hold it is openpilot's own request echoed back, so the old `> 1` test read that echo as
-    # a driver press: openpilot handed off to overriding, the request stopped, GAS fell, it
-    # re-engaged, and the request rose again -- a ~0.4s lurch-and-hold loop. While the ACC owns
-    # the throttle, trust only the camera's own driver-pedal bit.
+    # ENGINE_DATA carries two throttle bytes: GAS is what the powertrain executes -- during an
+    # ACC hold that is openpilot's own request echoed back, which an earlier `GAS > 1` test read
+    # as a driver press and turned into a ~0.4s lurch-and-hold loop -- and GAS_PEDAL is the
+    # driver's pedal. Over 18 captured overrides GAS_PEDAL agrees with the camera's bit on 96.8%
+    # of ACC-engaged frames and leads it by 50 ms, but it also sees three light touches the
+    # camera ignores, so while the ACC owns the throttle the camera bit still decides. See
+    # KNOWN_GAPS.md.
     self.acc_active = bool(cp_cam.vl["ACC"]["ACC_ACTIVE"])
     ret.gasPressed = (bool(cp_cam.vl["ACC_CMD"]["GAS_PRESSED"]) if self.acc_active else
-                      cp.vl["ENGINE_DATA"]["GAS"] > GAS_PRESSED_THRESHOLD)
+                      cp.vl["ENGINE_DATA"]["GAS_PEDAL"] > GAS_PRESSED_THRESHOLD)
     self.brake_pos = cp.vl["BRAKE_DATA"]["BRAKE_POS"]
     ret.brakePressed = cp.vl["ENGINE_DATA"]["BRAKE_PRESS"] != 0
     ret.steeringAngleDeg = cp.vl["STEER_ANGLE_SENSOR"]["STEER_ANGLE"]

@@ -28,6 +28,8 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
                                          initialized=False)
     self.angle_command_skipped = False
     self.lkas_active_last = False
+    self.resume_frames = 0
+    self.lateral_yielded = False
     self.resume_counter = 0
     self.cancel_counter = 0
     self.gap_counter = 0
@@ -54,7 +56,7 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
 
     if self.steer_pressed_frames * DT_CTRL > CarControllerParams.STEER_OVERRIDE_TIME:
       self.steer_override = True
-    elif self.steer_released_frames * DT_CTRL > CarControllerParams.STEER_OVERRIDE_TIME:
+    elif self.steer_released_frames * DT_CTRL > CarControllerParams.STEER_RETURN_TIME:
       self.steer_override = False
 
   def _update_eps_rearm(self, CS) -> bool:
@@ -88,6 +90,21 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
       lag = CarControllerParams.ANGLE_FILTER_MAX_LAG
       self.angle_filter.x = float(np.clip(self.angle_filter.x, desired_angle - lag, desired_angle + lag))
     return self.angle_filter.x
+
+  def _ease_in(self, apply_angle):
+    """Ramp the rate cap up over RESUME_TIME after openpilot takes the wheel back.
+
+    The rate limiter starts from wherever the rack is, so a resume that lands mid-turn is free to
+    close the whole gap at MAX_ANGLE_RATE and steps the wheel. Nothing here binds in normal driving,
+    which asks 19 deg/s at p99.
+    """
+    if self.resume_frames <= 0:
+      return apply_angle
+    self.resume_frames -= 1
+    total = CarControllerParams.RESUME_TIME / (CarControllerParams.STEER_STEP * DT_CTRL)
+    max_delta = float(np.interp(self.resume_frames, [0., total],
+                                [CarControllerParams.ANGLE_LIMITS.MAX_ANGLE_RATE, CarControllerParams.RESUME_ANGLE_RATE]))
+    return float(np.clip(apply_angle, self.apply_angle_last - max_delta, self.apply_angle_last + max_delta))
 
   def _update_cancel(self, CS, can_sends):
     """Tap the ACC button to cancel the stock ACC.
@@ -167,6 +184,9 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
     eps_rearming = self._update_eps_rearm(CS)
     lat_active = (CC.latActive and not self.steer_override and not eps_rearming and
                   abs(CS.out.steeringAngleDeg) <= CarControllerParams.ANGLE_LIMITS.STEER_ANGLE_MAX)
+    # A fresh engagement starts from a wheel the driver has left alone; handing lateral back mid-turn
+    # does not, so only that one eases in.
+    self.lateral_yielded |= CC.latActive and (self.steer_override or eps_rearming)
 
     if self.frame % CarControllerParams.STEER_STEP == 0:
       if self.apply_angle_last is None:
@@ -180,6 +200,10 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
         apply_angle = CS.out.steeringAngleDeg
         command_active = False
       elif lat_active:
+        if self.lateral_yielded and not self.lkas_active_last:
+          # Taking the wheel back: the model may already be a filter-clip away from where the rack is.
+          self.resume_frames = int(CarControllerParams.RESUME_TIME / (CarControllerParams.STEER_STEP * DT_CTRL))
+          self.lateral_yielded = False
         apply_angle = apply_steer_angle_limits_vm(
           self._filter_desired_angle(actuators.steeringAngleDeg, CS),
           self.apply_angle_last,
@@ -189,6 +213,7 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
           CarControllerParams,
           self.VM,
         )
+        apply_angle = self._ease_in(apply_angle)
         command_active = True
       else:
         apply_angle = CS.out.steeringAngleDeg

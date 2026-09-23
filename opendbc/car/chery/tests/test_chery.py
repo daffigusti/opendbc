@@ -778,20 +778,21 @@ def test_driver_torque_hands_lateral_back_and_takes_it_returned():
   control = make_control(True, 30.0)
   override = CarControllerParams.STEER_THRESHOLD + 1
 
-  # A brief tug does not drop lateral.
-  last = run_frames(controller, control, range(50), steering_torque=override)
+  # A tug shorter than STEER_OVERRIDE_TIME does not drop lateral.
+  brief = int(CarControllerParams.STEER_OVERRIDE_TIME / DT_CTRL) - 10
+  last = run_frames(controller, control, range(brief), steering_torque=override)
   assert decode_steering_message(last[0x345])["LKA_ACTIVE"] == 1
   assert decode_hud_alert(last[0x3FC])["ICA_WARNING"] == 0
 
-  # Holding past a second does.
-  last = run_frames(controller, control, range(50, 160), steering_torque=override)
+  # Holding past it does.
+  last = run_frames(controller, control, range(brief, 160), steering_torque=override)
   assert decode_steering_message(last[0x345])["LKA_ACTIVE"] == 0
   assert decode_hud(last[0x307])["LKA_ACTIVE"] == 0
   alert = last[0x3FC]
   assert decode_hud_alert(alert)["ICA_WARNING"] == 6
   assert alert[1][-1] == calculate_crc(alert[1][:-1])
 
-  # And letting go for a second gives it back.
+  # And letting go for STEER_RETURN_TIME gives it back.
   last = run_frames(controller, control, range(160, 400), steering_torque=0.0)
   assert decode_steering_message(last[0x345])["LKA_ACTIVE"] == 1
   assert decode_hud(last[0x307])["LKA_ACTIVE"] == 1
@@ -1368,3 +1369,95 @@ def test_bms_requests_only_run_with_obd_multiplexing():
     assert request.bus == 1
     assert request.obd_multiplexing
     assert request.logging
+
+
+def test_steering_eases_back_in_after_a_driver_override():
+  """Resuming mid-turn must not step the wheel: route 000004c8 caught catch-ups at 101-108 deg/s."""
+  controller = make_controller()
+  straight = make_control(True, 0.0)
+  for frame in range(300):
+    torque = CarControllerParams.STEER_THRESHOLD + 1 if frame >= 100 else 0.0
+    controller.update(straight, structs.CarControlSP(), make_state(0.0, 10.0, steering_torque=torque), frame * 10_000_000)
+  assert controller.steer_override
+
+  # Driver lets go while the model has run 30 deg away from the rack.
+  turning = make_control(True, 30.0)
+  rates, last, elapsed = [], controller.apply_angle_last, None
+  for frame in range(300, 600):
+    controller.update(turning, structs.CarControlSP(), make_state(0.0, 10.0), frame * 10_000_000)
+    if frame % CarControllerParams.STEER_STEP:
+      continue
+    if controller.lkas_active_last:
+      rates.append(abs(controller.apply_angle_last - last) / (CarControllerParams.STEER_STEP * DT_CTRL))
+      if elapsed is None:
+        elapsed = 0.0
+      elapsed += CarControllerParams.STEER_STEP * DT_CTRL
+    last = controller.apply_angle_last
+
+  ramp_steps = int(CarControllerParams.RESUME_TIME / (CarControllerParams.STEER_STEP * DT_CTRL))
+  assert rates, "lateral never came back"
+  # The first command out is held near the eased rate, not the 100 deg/s the limiter would allow.
+  # The wire quantizes to 0.1 deg, which can round one step up.
+  step = CarControllerParams.STEER_STEP * DT_CTRL
+  assert rates[0] <= (CarControllerParams.RESUME_ANGLE_RATE + 0.1) / step
+  # The whole ramp stays under the full cap, and the cap is back afterwards.
+  assert max(rates[:ramp_steps]) < CarControllerParams.ANGLE_LIMITS.MAX_ANGLE_RATE / step
+  # It still gets there: the command reaches the model's angle once the ramp is done.
+  assert controller.apply_angle_last == pytest.approx(30.0, abs=0.2)
+
+
+def test_resume_ramp_does_not_bind_in_normal_driving():
+  """Hands-off driving asks 19 deg/s at p99; the ramp must be invisible there."""
+  controller = make_controller()
+  state = make_state(0.0, 10.0)
+  for frame in range(200):
+    controller.update(make_control(True, 1.0), structs.CarControlSP(), state, frame * 10_000_000)
+  assert controller.resume_frames == 0
+  before = controller.apply_angle_last
+  # A step the ramp would have clipped goes straight out: the cap is the limiter's, not the ramp's.
+  for frame in range(200, 204):
+    controller.update(make_control(True, before + 5.0), structs.CarControlSP(), state, frame * 10_000_000)
+  assert controller.apply_angle_last - before > CarControllerParams.RESUME_ANGLE_RATE
+
+
+def drive_torque(controller, torques, speed=10.0, angle=0.0):
+  """Feed a torque trace at 100 Hz and report when the override was on."""
+  override = []
+  for frame, torque in enumerate(torques):
+    state = make_state(angle, speed, steering_torque=torque)
+    controller.update(make_control(True, angle), structs.CarControlSP(), state, frame * 10_000_000)
+    override.append(controller.steer_override)
+  return override
+
+
+def test_override_yields_sooner_than_it_returns():
+  """The driver's torque is ragged mid-turn, so lateral comes back slower than it lets go."""
+  assert CarControllerParams.STEER_OVERRIDE_TIME < CarControllerParams.STEER_RETURN_TIME
+
+  push = CarControllerParams.STEER_THRESHOLD + 1
+  hold = int(CarControllerParams.STEER_OVERRIDE_TIME / DT_CTRL) + 2
+  release = int(CarControllerParams.STEER_RETURN_TIME / DT_CTRL) + 2
+  override = drive_torque(make_controller(), [push] * hold + [0.0] * release)
+
+  assert override[hold - 1], "override never engaged"
+  assert not override[-1], "override never released"
+  # It yields within its own time, and only then waits out the longer return.
+  assert override[int(CarControllerParams.STEER_OVERRIDE_TIME / DT_CTRL) + 1]
+  assert override[hold + int(CarControllerParams.STEER_RETURN_TIME / DT_CTRL) - 1]
+
+
+def test_brief_lull_mid_turn_does_not_hand_lateral_back():
+  """Route 000004c8: 24 of 32 dips below the threshold inside a turn last under 0.3 s."""
+  push = CarControllerParams.STEER_THRESHOLD + 1
+  hold = int(CarControllerParams.STEER_OVERRIDE_TIME / DT_CTRL) + 2
+  lull = int(0.3 / DT_CTRL)
+  override = drive_torque(make_controller(), [push] * hold + [0.0] * lull + [push] * 20)
+  assert all(override[hold:])
+
+
+def test_a_short_nudge_still_keeps_lateral():
+  """Shorter than the yield time is road feel, not a driver taking over."""
+  push = CarControllerParams.STEER_THRESHOLD + 1
+  nudge = int(CarControllerParams.STEER_OVERRIDE_TIME / DT_CTRL) - 10
+  override = drive_torque(make_controller(), [0.0] * 20 + [push] * nudge + [0.0] * 50)
+  assert not any(override)

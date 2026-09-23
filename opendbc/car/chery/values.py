@@ -40,6 +40,18 @@ class CarControllerParams:
   # jitter this filter exists to remove -- holds it to 7.7 deg p95 there while low-speed jitter stays
   # where tau 0.4 put it (0.37 deg RMS on route 0000049e) and tight-turn peaks improve on it.
   ANGLE_FILTER_MAX_LAG = 6.
+  # Coming back from a driver override, _filter_desired_angle restarts at the wheel and is then
+  # clipped to within ANGLE_FILTER_MAX_LAG of the model, so the first active frame may ask for a step
+  # that large and MAX_ANGLE_RATE lets it out at the full 100 deg/s. Route 000004c8 caught 7 of those
+  # in 9 minutes of lateral: the model had moved 7-23 deg while the driver turned the car, and the
+  # catch-up ran at 101-108 deg/s with the wheel following at 41-108 deg/s, where hands-off driving
+  # asks 19 deg/s at p99. Ease the rate cap from RESUME_ANGLE_RATE back up to MAX_ANGLE_RATE instead.
+  # Replayed against those 7 gaps (2.5-23.1 deg): at RESUME_TIME 0.5 the worst catch-up still peaks
+  # at 86 deg/s, at 1.0 it peaks at 64 and takes 0.50 s to close rather than 0.42, and 1.5 only buys
+  # 55 deg/s for a slower close. A fresh engagement does not ease in, only lateral handed back does.
+  # ponytail: fixed ramp, no error feedback; if turn-in right after an override reads late, shorten it.
+  RESUME_ANGLE_RATE = 0.6  # deg per STEER_STEP, 30 deg/s
+  RESUME_TIME = 1.0
   ACCEL_MIN = -3.5
   ACCEL_MAX = 2.0
   RAW_ACCEL_MIN = -511
@@ -79,8 +91,18 @@ class CarControllerParams:
   # STEER_SENSOR_2.TORQUE_DRIVER is 0.24 units; 70 is the threshold the working fork ran with.
   # Unverified against a labelled stationary sweep -- see KNOWN_GAPS.md.
   STEER_THRESHOLD = 70.
-  # Driver has to hold past this before lateral drops out, and hold off it that long to get it back.
-  STEER_OVERRIDE_TIME = 1.0
+  # Driver has to hold past this before lateral drops out, and hold off STEER_RETURN_TIME to get it
+  # back. Route 000004c8 replayed the state machine over its recorded torque: at 1.0 s in, openpilot
+  # was still pulling against a 204-280 unit push for a full second before yielding, and 4 more pushes
+  # of 0.48-0.92 s (peaks 124-263) were argued with and never conceded. 0.4 s concedes those too, for
+  # 8 dropouts over the route rather than 6. Coming back, the driver's torque inside a turn is ragged
+  # -- 24 of 32 dips below the threshold last under 0.3 s -- so the return waits longer than the yield,
+  # but not the full second: 1.0 s held lateral off for 13.3 s of the route, 0.5 s for 9.3 s, with no
+  # release-then-retake inside 1.5 s at either. Together: 13.5 s off, about today's, yielding sooner.
+  # ponytail: one threshold for both directions; if it yields to road-feel torque, raise STEER_THRESHOLD
+  # rather than these.
+  STEER_OVERRIDE_TIME = 0.4
+  STEER_RETURN_TIME = 0.5
   # The EPS latches itself off when the driver pushes past ~300 TORQUE_DRIVER and only listens again
   # after LKA_ACTIVE drops and rises (route 0000049e: 3 of 3 dropouts, 39 of 39 recoveries, back
   # 30-40 ms after the rising edge). Engagement and one-frame blips stay under 40 ms.
